@@ -32,6 +32,11 @@ export class ClaudeClient {
 				]
 			});
 
+			// Validate response structure
+			if (!message.content || message.content.length === 0) {
+				throw new Error('Claude API returned empty response');
+			}
+
 			if (message.content[0].type === 'text') {
 				return message.content[0].text;
 			}

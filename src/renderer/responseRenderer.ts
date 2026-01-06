@@ -19,7 +19,13 @@ export function renderClaudeResponse(options: RenderOptions): void {
 	};
 
 	// Insert two newlines and then the callout
-	const callout = `\n\n> [!claude] Claude's Response\n> ${response.split('\n').join('\n> ')}`;
+	// Handle empty lines in response properly
+	const formattedResponse = response
+		.split('\n')
+		.map(line => line.trim() ? `> ${line}` : '>')
+		.join('\n');
+
+	const callout = `\n\n> [!claude] Claude's Response\n${formattedResponse}`;
 
 	editor.replaceRange(callout, cursor);
 }

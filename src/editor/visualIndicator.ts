@@ -13,15 +13,15 @@ export class ClaudeIndicatorWidget extends WidgetType {
 
 		switch (this.state) {
 			case 'ready':
-				span.innerHTML = '🤖';
+				span.textContent = '🤖';
 				span.setAttribute('aria-label', 'Claude ready');
 				break;
 			case 'processing':
-				span.innerHTML = '⏳';
+				span.textContent = '⏳';
 				span.setAttribute('aria-label', 'Claude processing');
 				break;
 			case 'error':
-				span.innerHTML = '⚠️';
+				span.textContent = '⚠️';
 				span.setAttribute('aria-label', 'Claude error');
 				break;
 		}

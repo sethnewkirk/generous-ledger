@@ -27,6 +27,10 @@ export function getParagraphAtCursor(state: EditorState, pos: number): Paragraph
 	// Scan forward to find paragraph end (empty line or end of document)
 	currentLineNum = line.number;
 	while (currentLineNum < doc.lines) {
+		// Check if there's a next line before accessing it
+		if (currentLineNum + 1 > doc.lines) {
+			break;
+		}
 		const nextLine = doc.line(currentLineNum + 1);
 		if (nextLine.text.trim() === '') {
 			break;

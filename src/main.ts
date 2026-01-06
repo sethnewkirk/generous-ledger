@@ -118,8 +118,16 @@ export default class GenerousLedgerPlugin extends Plugin {
 			this.initializeClaudeClient();
 		}
 
+		// Extract the paragraph content without @Claude
+		const content = removeClaudeMentionFromText(paragraph.text);
+
+		if (!content.trim()) {
+			new Notice('Please provide content for Claude to respond to');
+			return;
+		}
+
 		// Update indicator to processing
-		const mentionPos = findClaudeMentionInView(view);
+		let mentionPos = findClaudeMentionInView(view);
 		if (mentionPos !== null) {
 			view.dispatch({
 				effects: setIndicatorState.of({
@@ -132,16 +140,15 @@ export default class GenerousLedgerPlugin extends Plugin {
 		this.processingRequest = true;
 
 		try {
-			// Extract the paragraph content without @Claude
-			const content = removeClaudeMentionFromText(paragraph.text);
-
-			if (!content.trim()) {
-				new Notice('Please provide content for Claude to respond to');
-				return;
-			}
-
 			// Send to Claude API
 			const response = await this.claudeClient!.sendMessage(content);
+
+			// Verify we're still in the same view
+			const currentView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!currentView || currentView !== activeView) {
+				new Notice('Document changed during request. Response not inserted.');
+				return;
+			}
 
 			// Clear the indicator
 			view.dispatch({
@@ -158,7 +165,8 @@ export default class GenerousLedgerPlugin extends Plugin {
 		} catch (error) {
 			console.error('Claude API error:', error);
 
-			// Update indicator to error
+			// Recalculate mention position in case document changed
+			mentionPos = findClaudeMentionInView(view);
 			if (mentionPos !== null) {
 				view.dispatch({
 					effects: setIndicatorState.of({
