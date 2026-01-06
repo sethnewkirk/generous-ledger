@@ -64,7 +64,11 @@ An Obsidian plugin that brings Claude AI directly into your notes through simple
 
 ## Development
 
-See [CLAUDE.md](./CLAUDE.md) for development instructions.
+### Documentation
+
+- **[Developer Guide](./docs/DEVELOPMENT.md)** - Setup, commands, and workflow
+- **[Architecture](./docs/ARCHITECTURE.md)** - System design and structure
+- **[Security](./docs/SECURITY.md)** - Security audit and fixes
 
 ### Build Commands
 
@@ -77,6 +81,16 @@ npm run dev
 
 # Production build
 npm run build
+```
+
+### Project Structure
+
+```
+src/
+├── core/              # Shared infrastructure (API client)
+├── features/          # Feature modules
+│   └── inline-assistant/  # @Claude mention feature
+└── main.ts            # Plugin entry point
 ```
 
 ## Privacy & Security

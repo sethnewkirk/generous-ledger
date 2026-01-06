@@ -1,10 +1,10 @@
 import { Editor, MarkdownView, Notice, Plugin } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
-import { ClaudeClient } from './api/claudeClient';
-import { getParagraphAtCursor, removeClaudeMentionFromText, hasClaudeMention } from './editor/paragraphExtractor';
-import { renderClaudeResponse, renderClaudeError } from './renderer/responseRenderer';
-import { claudeIndicatorField, setIndicatorState, findClaudeMentionInView } from './editor/claudeDetector';
+import { ClaudeClient } from './core/api/claudeClient';
+import { getParagraphAtCursor, removeClaudeMentionFromText, hasClaudeMention } from './features/inline-assistant/paragraphExtractor';
+import { renderClaudeResponse, renderClaudeError } from './features/inline-assistant/responseRenderer';
+import { claudeIndicatorField, setIndicatorState, findClaudeMentionInView } from './features/inline-assistant/claudeDetector';
 
 export default class GenerousLedgerPlugin extends Plugin {
 	settings: GenerousLedgerSettings;
