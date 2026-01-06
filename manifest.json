@@ -1,0 +1,10 @@
+{
+  "id": "generous-ledger",
+  "name": "Generous Ledger",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Inline Claude AI assistance via @Claude mentions. Ask questions and get responses directly in your notes.",
+  "author": "Seth Newkirk",
+  "authorUrl": "https://github.com/sethnewkirk/generous-ledger",
+  "isDesktopOnly": true
+}
