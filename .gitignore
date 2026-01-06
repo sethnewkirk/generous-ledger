@@ -24,3 +24,6 @@ Thumbs.db
 
 # Obsidian
 data.json
+
+# Continuous Claude cache (local only)
+.claude/cache/
