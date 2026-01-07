@@ -1,5 +1,6 @@
 import { Editor, MarkdownView, Notice, Plugin } from 'obsidian';
-import { EditorView } from '@codemirror/view';
+import { EditorView, keymap } from '@codemirror/view';
+import { Prec } from '@codemirror/state';
 import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
 import { ClaudeClient } from './core/api/claudeClient';
 import { getParagraphAtCursor, removeClaudeMentionFromText, hasClaudeMention } from './features/inline-assistant/paragraphExtractor';
@@ -22,15 +23,18 @@ export default class GenerousLedgerPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new GenerousLedgerSettingTab(this.app, this));
 
-		// Register CodeMirror extension for visual indicators
-		this.registerEditorExtension([claudeIndicatorField]);
-
-		// Register Enter key handler
-		this.registerDomEvent(document, 'keydown', (evt: KeyboardEvent) => {
-			if (evt.key === 'Enter' && !evt.shiftKey) {
-				this.handleEnterKey(evt);
-			}
-		});
+		// Register CodeMirror extensions for visual indicators and Enter key handling
+		this.registerEditorExtension([
+			claudeIndicatorField,
+			Prec.highest(keymap.of([
+				{
+					key: 'Enter',
+					run: (view: EditorView) => {
+						return this.handleEnterKeyCodeMirror(view);
+					}
+				}
+			]))
+		]);
 
 		// Update visual indicator as user types
 		this.registerEvent(
@@ -67,6 +71,11 @@ export default class GenerousLedgerPlugin extends Plugin {
 	}
 
 	private updateVisualIndicator(editor: Editor) {
+		// Don't update indicators while processing a request
+		if (this.processingRequest) {
+			return;
+		}
+
 		const view = this.getEditorView(editor);
 		if (!view) return;
 
@@ -86,27 +95,34 @@ export default class GenerousLedgerPlugin extends Plugin {
 		}
 	}
 
-	private async handleEnterKey(evt: KeyboardEvent) {
+	private handleEnterKeyCodeMirror(view: EditorView): boolean {
+		if (this.processingRequest) {
+			return false;
+		}
+
+		const cursor = view.state.selection.main.head;
+		const paragraph = getParagraphAtCursor(view.state, cursor);
+
+		if (!paragraph || !hasClaudeMention(paragraph.text)) {
+			return false; // Let default Enter behavior proceed
+		}
+
+		// Find and store the mention position BEFORE any changes
+		const mentionPos = findClaudeMentionInView(view);
+
+		// Launch async handler (don't block the keymap)
+		this.handleEnterAsync(view, paragraph, mentionPos);
+
+		return true; // Prevent default Enter behavior
+	}
+
+	private async handleEnterAsync(view: EditorView, paragraph: any, mentionPos: number | null) {
 		if (this.processingRequest) return;
 
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!activeView) return;
 
 		const editor = activeView.editor;
-		const view = this.getEditorView(editor);
-		if (!view) return;
-
-		const cursor = editor.getCursor();
-		const cursorOffset = editor.posToOffset(cursor);
-		const paragraph = getParagraphAtCursor(view.state, cursorOffset);
-
-		if (!paragraph || !hasClaudeMention(paragraph.text)) {
-			return;
-		}
-
-		// Prevent default Enter behavior
-		evt.preventDefault();
-		evt.stopPropagation();
 
 		// Check if API key is configured
 		if (!this.settings.apiKey) {
@@ -126,8 +142,10 @@ export default class GenerousLedgerPlugin extends Plugin {
 			return;
 		}
 
-		// Update indicator to processing
-		let mentionPos = findClaudeMentionInView(view);
+		// Set processing flag BEFORE updating indicator to prevent race condition
+		this.processingRequest = true;
+
+		// Update indicator to processing using the stored position (if found)
 		if (mentionPos !== null) {
 			view.dispatch({
 				effects: setIndicatorState.of({
@@ -136,8 +154,6 @@ export default class GenerousLedgerPlugin extends Plugin {
 				})
 			});
 		}
-
-		this.processingRequest = true;
 
 		try {
 			// Send to Claude API
@@ -165,8 +181,7 @@ export default class GenerousLedgerPlugin extends Plugin {
 		} catch (error) {
 			console.error('Claude API error:', error);
 
-			// Recalculate mention position in case document changed
-			mentionPos = findClaudeMentionInView(view);
+			// Update indicator to error state using stored position (if found)
 			if (mentionPos !== null) {
 				view.dispatch({
 					effects: setIndicatorState.of({

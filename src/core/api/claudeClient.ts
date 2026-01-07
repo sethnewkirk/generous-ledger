@@ -15,6 +15,7 @@ export class ClaudeClient {
 		this.config = config;
 		this.client = new Anthropic({
 			apiKey: config.apiKey,
+			dangerouslyAllowBrowser: true,
 		});
 	}
 
@@ -55,6 +56,7 @@ export class ClaudeClient {
 		if (config.apiKey) {
 			this.client = new Anthropic({
 				apiKey: config.apiKey,
+				dangerouslyAllowBrowser: true,
 			});
 		}
 	}
