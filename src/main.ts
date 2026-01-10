@@ -4,7 +4,7 @@ import { Prec } from '@codemirror/state';
 import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
 import { ClaudeClient } from './core/api/claudeClient';
 import { getParagraphAtCursor, removeClaudeMentionFromText, hasClaudeMention } from './features/inline-assistant/paragraphExtractor';
-import { renderClaudeResponse, renderClaudeError } from './features/inline-assistant/responseRenderer';
+import { initClaudeResponse, appendClaudeResponse, finalizeClaudeResponse, renderClaudeError } from './features/inline-assistant/responseRenderer';
 import { claudeIndicatorField, setIndicatorState, findClaudeMentionInView } from './features/inline-assistant/claudeDetector';
 
 export default class GenerousLedgerPlugin extends Plugin {
@@ -156,26 +156,28 @@ export default class GenerousLedgerPlugin extends Plugin {
 		}
 
 		try {
-			// Send to Claude API
-			const response = await this.claudeClient!.sendMessage(content);
+			// Initialize response area with opening span
+			let cursor = initClaudeResponse({ editor, paragraphEnd: paragraph.to });
 
-			// Verify we're still in the same view
-			const currentView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!currentView || currentView !== activeView) {
-				new Notice('Document changed during request. Response not inserted.');
-				return;
+			// Stream response chunks with typing effect
+			for await (const chunk of this.claudeClient!.streamMessage(content)) {
+				// Verify we're still in the same view
+				const currentView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (!currentView || currentView !== activeView) {
+					new Notice('Document changed during request. Response may be incomplete.');
+					break;
+				}
+
+				// Append chunk to document
+				cursor = appendClaudeResponse({ editor, cursor, text: chunk });
 			}
+
+			// Finalize response with closing span
+			finalizeClaudeResponse({ editor, cursor });
 
 			// Clear the indicator
 			view.dispatch({
 				effects: setIndicatorState.of(null)
-			});
-
-			// Render the response
-			renderClaudeResponse({
-				editor,
-				paragraphEnd: paragraph.to,
-				response
 			});
 
 		} catch (error) {

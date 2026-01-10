@@ -51,6 +51,34 @@ export class ClaudeClient {
 		}
 	}
 
+	async *streamMessage(content: string): AsyncGenerator<string> {
+		try {
+			const stream = this.client.messages.stream({
+				model: this.config.model,
+				max_tokens: this.config.maxTokens,
+				system: this.config.systemPrompt || undefined,
+				messages: [
+					{
+						role: 'user',
+						content: content
+					}
+				]
+			});
+
+			for await (const event of stream) {
+				if (event.type === 'content_block_delta' &&
+					event.delta.type === 'text_delta') {
+					yield event.delta.text;
+				}
+			}
+		} catch (error) {
+			if (error instanceof Anthropic.APIError) {
+				throw new Error(`Claude API Error: ${error.message}`);
+			}
+			throw error;
+		}
+	}
+
 	updateConfig(config: Partial<ClaudeClientConfig>): void {
 		this.config = { ...this.config, ...config };
 		if (config.apiKey) {
