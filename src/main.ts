@@ -19,16 +19,12 @@ export default class GenerousLedgerPlugin extends Plugin {
 	private processingRequest = false;
 
 	async onload() {
-		console.log('Generous Ledger: onload() called');
 		await this.loadSettings();
-		console.log('Generous Ledger: Settings loaded:', this.settings);
 
 		this.sessionManager = new SessionManager(this.app);
-		console.log('Generous Ledger: SessionManager initialized');
 
 		// Check Claude Code CLI availability, version, and auth
 		await this.checkClaudeCodeSetup();
-		console.log('Generous Ledger: Claude Code setup complete, ready =', this.claudeCodeReady);
 
 		// Install obsidian-skills if not present
 		const skillsInstaller = new SkillsInstaller(this.app);
@@ -133,9 +129,7 @@ export default class GenerousLedgerPlugin extends Plugin {
 	}
 
 	private handleEnterKeyCodeMirror(view: EditorView): boolean {
-		console.log('Generous Ledger: handleEnterKeyCodeMirror called');
 		if (this.processingRequest) {
-			console.log('Generous Ledger: Already processing, ignoring');
 			return false;
 		}
 
@@ -143,11 +137,8 @@ export default class GenerousLedgerPlugin extends Plugin {
 		const paragraph = getParagraphAtCursor(view.state, cursor);
 
 		if (!paragraph || !hasClaudeMention(paragraph.text)) {
-			console.log('Generous Ledger: No @Claude mention found');
 			return false; // Let default Enter behavior proceed
 		}
-
-		console.log('Generous Ledger: @Claude mention found, paragraph:', paragraph.text);
 
 		// Find and store the mention position BEFORE any changes
 		const mentionPos = findClaudeMentionInView(view);
@@ -159,28 +150,17 @@ export default class GenerousLedgerPlugin extends Plugin {
 	}
 
 	private async handleEnterAsync(view: EditorView, paragraph: any, mentionPos: number | null) {
-		console.log('Generous Ledger: handleEnterAsync called');
 		if (this.processingRequest) return;
 
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!activeView) {
-			console.log('Generous Ledger: No active view');
-			return;
-		}
+		if (!activeView) return;
 
 		const editor = activeView.editor;
 		const file = activeView.file;
-		if (!file) {
-			console.log('Generous Ledger: No file');
-			return;
-		}
-
-		console.log('Generous Ledger: File:', file.path);
-		console.log('Generous Ledger: Claude Code ready:', this.claudeCodeReady);
+		if (!file) return;
 
 		// Check if Claude Code is ready
 		if (!this.claudeCodeReady) {
-			console.log('Generous Ledger: Claude Code not ready!');
 			new Notice('Claude Code not ready. Check plugin settings or install Claude Code CLI.');
 			return;
 		}

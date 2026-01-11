@@ -209,7 +209,6 @@ class BaseRenderer implements ResponseRenderer {
 			await this.app.vault.create(companionPath, content);
 		} catch (e) {
 			// File might already exist, that's okay
-			console.log('Base response handling:', e);
 		}
 	}
 

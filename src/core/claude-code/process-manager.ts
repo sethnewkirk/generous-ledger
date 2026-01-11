@@ -36,12 +36,8 @@ export class ClaudeCodeProcess extends EventEmitter {
 			args.push('--model', options.model);
 		}
 
-		console.log('Spawning Claude Code with args:', args);
-		console.log('Working directory:', options.workingDirectory);
-
 		// Find claude CLI
 		const claudePath = findClaudePath();
-		console.log('Using Claude path:', claudePath);
 
 		this.process = spawn(claudePath, args, {
 			cwd: options.workingDirectory,
@@ -54,13 +50,11 @@ export class ClaudeCodeProcess extends EventEmitter {
 
 		// Close stdin immediately since we're using -p mode
 		this.process.stdin?.end();
-		console.log('Claude Code process spawned, stdin closed');
 
 		let buffer = '';
 
 		this.process.stdout?.on('data', (chunk: Buffer) => {
 			const data = chunk.toString();
-			console.log('Claude Code stdout chunk received:', data.substring(0, 200));
 			buffer += data;
 			const lines = buffer.split('\n');
 			buffer = lines.pop() || '';
@@ -69,7 +63,6 @@ export class ClaudeCodeProcess extends EventEmitter {
 				if (line.trim()) {
 					try {
 						const message = JSON.parse(line);
-						console.log('Parsed message type:', message.type);
 						this.emit('message', message);
 					} catch (e) {
 						console.error('Failed to parse JSON:', line.substring(0, 100), e);
@@ -83,7 +76,6 @@ export class ClaudeCodeProcess extends EventEmitter {
 		});
 
 		this.process.on('close', (code) => {
-			console.log('Claude Code process closed with code:', code);
 			this.emit('close', code);
 		});
 
@@ -140,7 +132,6 @@ export async function checkClaudeCodeVersion(): Promise<{
 }> {
 	try {
 		const claudePath = findClaudePath();
-		console.log('Checking Claude Code at:', claudePath);
 
 		const versionOutput = execSync(`"${claudePath}" --version`, { encoding: 'utf-8' });
 		const version = versionOutput.match(/\d+\.\d+\.\d+/)?.[0];
