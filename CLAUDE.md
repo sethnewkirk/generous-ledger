@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Generous Ledger** is an Obsidian plugin that provides inline Claude AI assistance through `@Claude` mentions. Users type questions followed by `@Claude`, press Enter, and receive AI-generated responses directly in their notes as callout blocks.
+**Generous Ledger** is an Obsidian plugin that provides inline Claude AI assistance through `@Claude` mentions. Users type questions followed by `@Claude`, press Enter, and receive AI-generated responses directly in their notes with character-by-character streaming and intelligent thinking collapse.
 
 ## Development Commands
 
@@ -18,6 +18,12 @@ npm run dev
 # Production build (TypeScript check + bundle)
 npm run build
 
+# Run tests
+npm test
+
+# Deploy to test vault
+npm run build && cp main.js ~/path/to/vault/.obsidian/plugins/generous-ledger/
+
 # Version bump (updates manifest.json and versions.json)
 npm run version
 ```
@@ -26,74 +32,151 @@ npm run version
 
 To test during development:
 
-1. **Create symlink** from plugin directory to Obsidian vault:
+1. **Build and deploy**:
    ```bash
-   ln -s /path/to/generous-ledger /path/to/vault/.obsidian/plugins/generous-ledger
+   npm run build && cp main.js ~/generous-ai/Vault/.obsidian/plugins/generous-ledger/
    ```
 
-2. **Run dev mode**: `npm run dev` (auto-rebuilds on changes)
+2. **Reload plugin** in Obsidian:
+   - Settings → Community plugins → Toggle generous-ledger OFF then ON
+   - Or: Cmd/Ctrl+R
 
-3. **Reload plugin** in Obsidian: Cmd/Ctrl+R or toggle plugin off/on in settings
+3. **Test streaming**:
+   - Short response (no collapse): `@Claude what is 2+2?`
+   - Long response (thinking collapse): `@Claude explain binary search step by step`
+
+4. **Check Developer Console**:
+   - View → Toggle Developer Tools
+   - Look for errors or streaming logs
 
 ## Architecture
 
 ### Technology Stack
 - **TypeScript** - Type-safe development with strict null checks
-- **esbuild** - Fast bundling, produces ~121KB main.js
-- **CodeMirror 6** - Editor extensions for real-time visual indicators
-- **Anthropic SDK** - Claude API integration (streaming responses added)
+- **esbuild** - Fast bundling, produces main.js
+- **CodeMirror 6** - Editor extensions for @Claude detection and visual indicators
+- **Claude Code CLI** - Subprocess integration with stream-json output
+- **Jest** - Testing framework with MockEditor
 - **Obsidian API** - Plugin framework (desktop only)
 
 ### Directory Structure
 
 ```
 src/
-├── main.ts                          # Plugin entry point, orchestrates all components
-├── settings.ts                      # Settings tab and configuration interface
+├── main.ts                          # Plugin entry point, CLI process orchestration
+├── settings.ts                      # Settings tab (model selection, system prompt)
 ├── core/                            # Shared infrastructure
-│   └── api/
-│       └── claudeClient.ts          # Anthropic API wrapper
+│   ├── claude-code/                 # Claude Code CLI integration
+│   │   ├── process-manager.ts       # Subprocess spawning and management
+│   │   ├── stream-parser.ts         # JSON stream parsing, text extraction
+│   │   └── session-manager.ts       # Frontmatter CRUD for session IDs
+│   ├── format/                      # Format detection and rendering
+│   │   ├── format-detector.ts       # Detects .md/.canvas/.base files
+│   │   ├── format-renderer.ts       # Polymorphic renderers per format
+│   │   └── __tests__/               # Jest tests for rendering
+│   │       └── format-renderer.test.ts
+│   └── skills/                      # Skills installation
+│       └── skills-installer.ts      # Downloads obsidian-skills from repo
 └── features/                        # Feature modules
     └── inline-assistant/            # @Claude inline feature
         ├── claudeDetector.ts        # CodeMirror extension for @Claude detection
         ├── paragraphExtractor.ts    # Paragraph boundary detection & extraction
-        ├── visualIndicator.ts       # Widget for visual feedback (🤖/⏳/⚠️)
-        └── responseRenderer.ts      # Formats and inserts Claude responses
+        └── visualIndicator.ts       # Widget for visual feedback (🤖/⏳/⚠️/🔧)
 ```
 
 ### High-Level Data Flow
 
-1. **Trigger Detection**: CodeMirror 6 StateField (`claudeIndicatorField`) monitors editor for `@claude` mentions (case-insensitive) on current line and displays visual indicators
+1. **Trigger Detection**: CodeMirror 6 StateField (`claudeIndicatorField`) monitors editor for `@claude` mentions (case-insensitive) and displays visual indicators
 
-2. **Enter Key Handling**: High-priority keymap intercepts Enter key (but not Shift+Enter) to trigger API call. Concurrent requests are prevented via `processingRequest` flag.
+2. **Enter Key Handling**: High-priority keymap intercepts Enter key to spawn Claude Code CLI process. Concurrent requests prevented via `processingRequest` flag.
 
-3. **Paragraph Extraction**: Scans up/down from cursor to find paragraph boundaries (blank lines). Handles edge cases like last line of document with bounds checking.
+3. **Paragraph Extraction**: Scans up/down from cursor to find paragraph boundaries (blank lines). Strips YAML frontmatter and @Claude trigger from content.
 
-4. **API Communication**: Sends paragraph content (minus @Claude trigger) to Anthropic API with streaming support. Indicators update to processing state (⏳).
+4. **CLI Process Spawning**: Spawns Claude Code as subprocess with:
+   - `-p <prompt>` - Direct prompt mode
+   - `--output-format stream-json` - JSON streaming output
+   - `--verbose` - Required for stream-json with -p
+   - `--include-partial-messages` - Character-by-character streaming
+   - `--permission-mode bypassPermissions` - Auto-approve operations
+   - `--model <model>` - User-selected model (Sonnet/Opus)
+   - `--resume <session-id>` - Session continuity (from frontmatter)
 
-5. **Response Rendering**: Verifies document hasn't changed during async call, then inserts response below paragraph in callout format (`> [!claude]`) with dark purple styling
+5. **Stream Parsing**: Parses JSON lines from stdout:
+   - `stream_event` messages → Incremental text deltas
+   - `tool_use` blocks → Visual indicator updates (🔧 Reading...)
+   - `session_id` field → Saved to frontmatter for continuity
+
+6. **Response Rendering**: Format-specific renderer:
+   - **Markdown**: Callout block with thinking collapse
+   - **Canvas**: New text node with edge (not yet functional - see handoffs)
+   - **Base**: Companion .md file
+
+7. **Thinking Collapse**: On finalize, if multi-paragraph response:
+   - Last paragraph = answer (visible)
+   - Earlier paragraphs = thinking (collapsed in `[!note]- Thinking` callout)
 
 ### Key Design Decisions
 
-**CodeMirror StateField over ViewPlugin**: Uses StateField for decorations to maintain indicator state across viewport changes. ViewPlugin would lose state when content scrolls out of view.
+**Claude Code CLI over Anthropic SDK**: Full tool access (Read, Write, Bash, Grep, etc.) enables richer interactions. Session persistence built-in via `--resume` flag.
 
-**Line-based Paragraph Detection**: Simple blank-line-delimited scanning rather than syntax tree parsing. Fast, reliable for Markdown, no heavyweight dependencies. Handles multi-line paragraphs and edge cases (first/last line).
+**Stream Event Parsing**: Parse `stream_event` messages with `content_block_delta` events for character-by-character streaming. Ignore `assistant` messages (full accumulated text) to avoid duplicates.
 
-**Decoupled API Client**: `ClaudeClient` class is separate from plugin logic for testability, model swapping, and streaming response support.
+**Thinking Collapse Heuristic**: Simple paragraph-based separation:
+- ≤1 paragraph OR (2 paragraphs AND <100 chars) → No collapse
+- Multiple paragraphs → Last = answer, rest = thinking
+- Works naturally with Claude's response structure
 
-**Obsidian Callout Format**: Responses use native `> [!claude]` syntax so they remain readable as Markdown even if plugin is disabled. Empty lines preserved with lone `>` characters.
+**Nested Collapsible Callout**: Use Obsidian's native `> > [!note]- Thinking` syntax instead of HTML `<details>` tags (which don't render inside blockquotes).
 
-**Security-First**: Race condition fixes ensure `processingRequest` flag is always reset (try/finally). Document verification prevents insertion into wrong file if user switches during API call. Array bounds checking prevents crashes.
+**Format Detection System**: Polymorphic renderers allow different output strategies per format (.md callouts, .canvas nodes, .base companion files).
+
+**Session Persistence**: Store Claude Code session ID in note frontmatter (`claude_session_id`). Each note maintains separate conversation context.
+
+**Test-Driven Development**: Thinking collapse feature developed with TDD approach using MockEditor that simulates Obsidian's Editor API.
 
 ### Critical Components
 
 **main.ts**:
 - Plugin lifecycle (onload/onunload)
-- Settings persistence
-- CodeMirror extension registration
-- Enter key handler with validation
-- Request orchestration
-- Visual indicator updates
+- Claude Code CLI readiness check
+- Enter key handler registration
+- Process spawning and event handling
+- Format detection and renderer creation
+- Visual indicator updates during tool use
+- Clear session command
+
+**process-manager.ts**:
+- `ClaudeCodeProcess` - EventEmitter-based subprocess wrapper
+- `query()` - Spawns claude CLI with arguments
+- Stdout parsing - Line-based JSON message extraction
+- Stderr capture - Error logging
+- `findClaudePath()` - Locates CLI in common install locations
+- `checkClaudeCodeVersion()` - Validates installation and auth
+
+**stream-parser.ts**:
+- `StreamMessage` interface - Typed stream event structure
+- `extractStreamingText()` - Accumulates text from `content_block_delta` events
+- `extractSessionId()` - Finds session ID in message stream
+- `extractCurrentToolUse()` - Determines active tool for indicator
+
+**session-manager.ts**:
+- `getSessionId()` - Reads `claude_session_id` from frontmatter
+- `setSessionId()` - Writes session ID to frontmatter
+- `clearSession()` - Removes session ID (fresh conversation)
+- Frontmatter validation and error handling
+
+**format-detector.ts**:
+- `detectFormat()` - Returns 'markdown' | 'canvas' | 'base' by extension
+- `buildFormatContext()` - Creates format-specific context object
+- `findNodeAtPosition()` - Locates canvas node containing @Claude
+- `findConnectedNodes()` - Finds linked canvas nodes
+
+**format-renderer.ts**:
+- `ResponseRenderer` interface - init/append/finalize methods
+- `MarkdownRenderer` - Callout-based rendering with thinking collapse
+- `CanvasRenderer` - Creates node + edge (untested, no trigger mechanism)
+- `BaseRenderer` - Writes companion .md file
+- `separateThinkingFromAnswer()` - Heuristic for collapse logic
 
 **claudeDetector.ts**:
 - `claudeIndicatorField` - StateField managing decorations
@@ -101,31 +184,31 @@ src/
 - `findClaudeMentionInView()` - Detects @Claude on current line
 
 **paragraphExtractor.ts**:
-- `getParagraphAtCursor()` - Scans up/down for blank lines, returns text + position
+- `getParagraphAtCursor()` - Scans up/down for blank lines
 - `hasClaudeMention()` - Case-insensitive @Claude detection
-- `removeClaudeMentionFromText()` - Strips trigger from content
-- Edge case: Bounds checking for last line access
+- `removeClaudeMentionFromText()` - Strips trigger and frontmatter
+- Edge case handling for document boundaries
 
-**claudeClient.ts**:
-- `sendMessage()` - API wrapper with streaming support
-- `updateSettings()` - Reconfigure model/tokens
-- Response validation (checks for empty content array)
-- Error handling for network failures
-
-**responseRenderer.ts**:
-- `initClaudeResponse()` - Creates initial callout structure
-- `appendClaudeResponse()` - Streams content
-- `finalizeClaudeResponse()` - Closes callout
-- `renderClaudeError()` - User-friendly error display
-- Empty line handling: `line.trim() ? '> ${line}' : '>'`
+**visualIndicator.ts**:
+- Widget rendering for different states (waiting/processing/error)
+- Tool name display (🔧 Reading..., 🔧 Writing..., etc.)
+- Position-based decoration tracking
 
 ## Configuration
 
 Settings stored in `.obsidian/plugins/generous-ledger/data.json`:
-- `apiKey` - User's Anthropic API key (required, stored as plain text per Obsidian standard)
 - `model` - Claude model identifier (default: `claude-sonnet-4-20250514`)
-- `maxTokens` - Response length limit (default: 4096, range: 1000-8000)
+  - Options: Sonnet 4 (faster) or Opus 4 (more capable)
+- `maxTokens` - Response length limit (default: 4096)
 - `systemPrompt` - Custom behavior instructions (optional)
+- `claudeCodePath` - Path to CLI (default: 'claude')
+- `additionalFlags` - Extra CLI flags (default: [])
+
+**No API key required**: Uses Claude Code CLI authentication (`claude` command handles auth).
+
+## Commands
+
+- **Clear Claude conversation for this note**: Removes `claude_session_id` from frontmatter, starting fresh conversation
 
 ## Build Configuration
 
@@ -143,36 +226,112 @@ Settings stored in `.obsidian/plugins/generous-ledger/data.json`:
 - Strict null checks enabled
 - Source maps: inline
 
+**jest.config.js**:
+- Preset: ts-jest
+- Test environment: node
+- Transform: TypeScript files via ts-jest
+- Module name mapper: Obsidian module mocks
+
+## Testing
+
+**Test Framework**: Jest with ts-jest
+
+**MockEditor**: Simulates Obsidian Editor API for testing
+- `replaceRange()` - Handles insert and replace operations
+- `getCursor()` - Returns cursor position
+- `getLine()` - Returns line content
+- `lastLine()` - Returns last line number
+- `getAllContent()` - Returns full document text
+
+**Test Coverage**:
+- Streaming UX behavior (append/finalize)
+- Thinking collapse logic (single paragraph, multi-paragraph, short responses)
+- MockEditor correctness (insert, replace, newline splitting)
+
+**Run tests**: `npm test`
+
 ## Security Notes
 
-**Fixed Critical Issues**:
-1. Race condition in `processingRequest` flag - now uses try/finally
-2. Paragraph boundary crash on last line - added bounds checking
-3. Null reference in API response - validates content array before access
-4. Document switch during API call - verifies active view hasn't changed
-5. Stale position references - recalculates in error handlers
+**CLI Process Spawning**:
+- Spawns subprocess with explicit stdin/stdout/stderr pipes
+- Closes stdin immediately (CLI expects this in -p mode)
+- No shell interpretation (direct spawn, not shell command)
+- Timeout protection (15 minute default)
 
-**API Key Handling**:
-- Stored locally in Obsidian's data.json
-- Password field in settings UI
-- Never logged or transmitted except to Anthropic
+**Session ID Validation**:
+- Validates frontmatter session ID format (>10 chars)
+- Shows warning if invalid, starts fresh
+- Never trusts malformed data
 
-**Acceptable Low-Priority Items**:
-- No rate limiting (user's API key, their responsibility)
-- Global keydown listener (minor performance impact)
-- No max content length (intentional for v1)
+**Concurrent Request Prevention**:
+- `processingRequest` flag prevents overlapping invocations
+- Process aborted on plugin unload
+- Try/finally ensures flag always reset
 
-## Future Extensibility
+**Path Resolution**:
+- Checks common install locations before falling back to PATH
+- Full path used for subprocess spawn (avoids PATH injection)
 
-The modular architecture supports these planned enhancements:
+## Streaming UX Details
 
-- **Conversation threading**: Extend ClaudeClient to maintain message history across @Claude calls
-- **Extended context**: New context extractors (whole note, selection, vault search)
-- **Model switching**: Per-request model selection via syntax (`@Claude:opus`)
-- **Mobile support**: REST API proxy (Anthropic SDK requires Node.js)
+### Character-by-Character Streaming
 
-## Documentation
+**How it works**:
+1. CLI outputs `stream_event` messages with `content_block_delta` events
+2. Each event has `delta.text` field with 1-N characters
+3. `extractStreamingText()` accumulates deltas into full text
+4. Renderer updates document on each new delta
 
-- **[DEVELOPMENT.md](./docs/DEVELOPMENT.md)** - Setup and workflow
-- **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Detailed system design
-- **[SECURITY.md](./docs/SECURITY.md)** - Security audit and fixes
+**Why it matters**: Users see responses appear in real-time as Claude generates them, creating more interactive experience.
+
+### Thinking Collapse
+
+**Trigger conditions**:
+- Response has >1 paragraph separated by blank lines
+- If 2 paragraphs, total length >100 chars
+- Otherwise, treated as short answer (no collapse)
+
+**Rendering**:
+```markdown
+> [!claude] Claude
+> > [!note]- Thinking
+> > [thinking paragraph 1]
+> > [thinking paragraph 2]
+>
+> [final answer paragraph]
+```
+
+**User experience**:
+- Sees full response stream character-by-character
+- On completion, thinking collapses automatically
+- Can expand "Thinking" to see reasoning
+- Final answer remains visible
+
+## Known Limitations
+
+1. **Canvas support**: Enter key handler doesn't work for canvas nodes (requires alternative trigger mechanism - see `thoughts/shared/handoffs/obsidian-claude-code-integration/2026-01-10_22-07-57_canvas-support.md`)
+
+2. **Base format**: Untested (creates companion .md file, may need refinement)
+
+3. **Mobile support**: Requires Claude Code CLI which needs Node.js (desktop only)
+
+4. **Rate limiting**: None (users manage their own Claude Code usage)
+
+## Future Enhancements
+
+Planned features documented in handoffs:
+
+- **Canvas invocations**: Command-based trigger or markdown-to-canvas output
+- **Extended context**: Whole note, selection, vault search integration
+- **Custom triggers**: Alternative syntax beyond @Claude
+- **Response history**: Previous responses browser/search
+- **Throttling**: Rate limit for canvas JSON writes
+
+## Handoffs & Documentation
+
+Session state preserved in `thoughts/shared/handoffs/obsidian-claude-code-integration/`:
+- `2026-01-10_21-48-04_streaming-ux-complete.md` - Streaming implementation
+- `2026-01-10_22-07-57_canvas-support.md` - Canvas investigation
+- `2026-01-10_22-20-55_cleanup-and-polish.md` - Cleanup session
+
+Continuity ledger: `thoughts/ledgers/CONTINUITY_CLAUDE-obsidian-claude-code-integration.md`
