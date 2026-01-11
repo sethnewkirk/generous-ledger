@@ -2,18 +2,25 @@ import { App, PluginSettingTab, Setting } from 'obsidian';
 import GenerousLedgerPlugin from './main';
 
 export interface GenerousLedgerSettings {
-	apiKey: string;
-	model: 'claude-sonnet-4-20250514' | 'claude-opus-4-5-20250514';
+	model: string;
 	maxTokens: number;
 	systemPrompt: string;
+	claudeCodePath: string;
+	additionalFlags: string[];
 }
 
 export const DEFAULT_SETTINGS: GenerousLedgerSettings = {
-	apiKey: '',
 	model: 'claude-sonnet-4-20250514',
 	maxTokens: 4096,
-	systemPrompt: 'You are a helpful AI assistant integrated into Obsidian. Provide clear, concise, and accurate responses.'
+	systemPrompt: 'You are a helpful AI assistant integrated into Obsidian. Provide clear, concise, and accurate responses.',
+	claudeCodePath: 'claude',
+	additionalFlags: [],
 };
+
+export const MODEL_OPTIONS = [
+	{ value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (Faster)' },
+	{ value: 'claude-opus-4-20250514', label: 'Claude Opus 4 (More Capable)' },
+];
 
 export class GenerousLedgerSettingTab extends PluginSettingTab {
 	plugin: GenerousLedgerPlugin;
@@ -30,29 +37,25 @@ export class GenerousLedgerSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Generous Ledger Settings' });
 
-		new Setting(containerEl)
-			.setName('Anthropic API Key')
-			.setDesc('Enter your Anthropic API key. Get one at https://console.anthropic.com/')
-			.addText(text => text
-				.setPlaceholder('sk-ant-...')
-				.setValue(this.plugin.settings.apiKey)
-				.onChange(async (value) => {
-					this.plugin.settings.apiKey = value;
-					await this.plugin.saveSettings();
-				})
-				.inputEl.setAttribute('type', 'password'));
+		containerEl.createEl('p', {
+			text: 'This plugin uses Claude Code CLI. Make sure you have it installed: npm i -g @anthropic-ai/claude-code',
+			cls: 'setting-item-description'
+		});
 
 		new Setting(containerEl)
 			.setName('Model')
 			.setDesc('Choose which Claude model to use (Sonnet is faster, Opus is more capable)')
-			.addDropdown(dropdown => dropdown
-				.addOption('claude-sonnet-4-20250514', 'Claude Sonnet 4')
-				.addOption('claude-opus-4-5-20250514', 'Claude Opus 4.5')
-				.setValue(this.plugin.settings.model)
-				.onChange(async (value) => {
-					this.plugin.settings.model = value as GenerousLedgerSettings['model'];
-					await this.plugin.saveSettings();
-				}));
+			.addDropdown(dropdown => {
+				MODEL_OPTIONS.forEach(option => {
+					dropdown.addOption(option.value, option.label);
+				});
+				return dropdown
+					.setValue(this.plugin.settings.model)
+					.onChange(async (value) => {
+						this.plugin.settings.model = value;
+						await this.plugin.saveSettings();
+					});
+			});
 
 		new Setting(containerEl)
 			.setName('Max Tokens')
@@ -74,6 +77,33 @@ export class GenerousLedgerSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.systemPrompt)
 				.onChange(async (value) => {
 					this.plugin.settings.systemPrompt = value;
+					await this.plugin.saveSettings();
+				}));
+
+		containerEl.createEl('h3', { text: 'Advanced Settings' });
+
+		new Setting(containerEl)
+			.setName('Claude Code Path')
+			.setDesc('Path to Claude Code CLI (leave as "claude" to use PATH)')
+			.addText(text => text
+				.setPlaceholder('claude')
+				.setValue(this.plugin.settings.claudeCodePath)
+				.onChange(async (value) => {
+					this.plugin.settings.claudeCodePath = value || 'claude';
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Additional CLI Flags')
+			.setDesc('Extra flags to pass to Claude Code (comma-separated, for advanced users)')
+			.addText(text => text
+				.setPlaceholder('--flag1, --flag2')
+				.setValue(this.plugin.settings.additionalFlags.join(', '))
+				.onChange(async (value) => {
+					this.plugin.settings.additionalFlags = value
+						.split(',')
+						.map(f => f.trim())
+						.filter(f => f.length > 0);
 					await this.plugin.saveSettings();
 				}));
 	}

@@ -12,6 +12,7 @@ import { ClaudeIndicatorWidget, IndicatorState } from './visualIndicator';
 export const setIndicatorState = StateEffect.define<{
 	pos: number;
 	state: IndicatorState;
+	toolName?: string;
 } | null>();
 
 // State field to track Claude mention decorations
@@ -28,7 +29,7 @@ export const claudeIndicatorField = StateField.define<DecorationSet>({
 					decorations = Decoration.none;
 				} else {
 					const widget = Decoration.widget({
-						widget: new ClaudeIndicatorWidget(effect.value.state),
+						widget: new ClaudeIndicatorWidget(effect.value.state, effect.value.toolName),
 						side: 1
 					});
 					decorations = Decoration.set([widget.range(effect.value.pos)]);

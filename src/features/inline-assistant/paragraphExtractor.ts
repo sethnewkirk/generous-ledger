@@ -45,8 +45,17 @@ export function getParagraphAtCursor(state: EditorState, pos: number): Paragraph
 }
 
 export function removeClaudeMentionFromText(text: string): string {
+	// Remove YAML frontmatter if present (starts and ends with ---)
+	let cleanText = text;
+	if (cleanText.startsWith('---')) {
+		const endOfFrontmatter = cleanText.indexOf('---', 3);
+		if (endOfFrontmatter !== -1) {
+			cleanText = cleanText.substring(endOfFrontmatter + 3).trim();
+		}
+	}
+
 	// Remove @Claude or @claude (case-insensitive) from the text
-	return text.replace(/@claude\b/gi, '').trim();
+	return cleanText.replace(/@claude\b/gi, '').trim();
 }
 
 export function hasClaudeMention(text: string): boolean {

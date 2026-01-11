@@ -1,0 +1,60 @@
+/* Visual indicator for @Claude mentions */
+.claude-indicator {
+	display: inline-block;
+	margin-left: 4px;
+	font-size: 0.9em;
+	vertical-align: middle;
+	transition: all 0.3s ease;
+}
+
+.claude-indicator-ready {
+	opacity: 0.8;
+}
+
+.claude-indicator-processing {
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+.claude-indicator-error {
+	opacity: 1;
+}
+
+@keyframes pulse {
+	0%, 100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.5;
+	}
+}
+
+/* Claude response callout styling */
+.callout[data-callout="claude"] {
+	--callout-color: 147, 112, 219;
+	--callout-icon: lucide-brain-circuit;
+}
+
+.callout[data-callout="claude"] .callout-title {
+	color: rgb(147, 112, 219);
+	font-weight: 600;
+}
+
+.callout[data-callout="claude"] .callout-content {
+	color: rgb(147, 112, 219);
+	line-height: 1.6;
+}
+
+/* Dark theme adjustments */
+.theme-dark .callout[data-callout="claude"] .callout-content {
+	color: rgb(177, 156, 217);
+}
+
+/* Light theme adjustments */
+.theme-light .callout[data-callout="claude"] .callout-content {
+	color: rgb(117, 82, 189);
+}
+
+/* Error callout for Claude errors */
+.callout[data-callout="error"] {
+	--callout-color: 220, 38, 38;
+}
