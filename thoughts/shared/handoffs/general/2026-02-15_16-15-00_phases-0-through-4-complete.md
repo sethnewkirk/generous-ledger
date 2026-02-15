@@ -106,14 +106,30 @@ The plugin has not been tested in Obsidian yet. Before Phase 5:
 - All source files in `src/` (8 files, 932 lines total)
 - All templates in `templates/` (6 files)
 
+## Known Bugs
+
+- **Cannot scroll during streaming** — While Claude is streaming a response, the user cannot scroll down the note. Likely the renderer's `append()` is resetting scroll position on each update. Fix: only auto-scroll if the user is already at the bottom, or debounce scroll-to-cursor.
+- **Onboarding flow broken** — Claude doesn't follow the steward onboarding protocol. Instead it acts as a generic assistant, explores the vault, and overwrites Onboarding.md. Root cause: vague prompt, no interaction mode context, no constraint on Write tool usage. **Full fix plan at `thoughts/shared/plans/2026-02-15-onboarding-ux-fix.md`.**
+
 ## Other Notes
 
-### Vault Path for Testing
-The user's Obsidian vault path is needed for deployment. The old CLAUDE.md referenced `~/generous-ai/Vault/`. Use:
+### Vault Path and Deployment
+The user's vault is at `~/Documents/Achaean/`. Full deployment requires BOTH the plugin AND the framework files:
+
 ```bash
-npm run build && cp main.js ~/generous-ai/Vault/.obsidian/plugins/generous-ledger/
+# Plugin deployment
+npm run build && cp main.js manifest.json styles.css ~/Documents/Achaean/.obsidian/plugins/generous-ledger/
+
+# Framework deployment (CLAUDE.md + FRAMEWORK.md + templates must be in vault root)
+cp CLAUDE.md ~/Documents/Achaean/CLAUDE.md
+cp docs/FRAMEWORK.md ~/Documents/Achaean/docs/FRAMEWORK.md
+cp templates/profile-*.md ~/Documents/Achaean/templates/
+
+# Reload
 obsidian plugin:reload id=generous-ledger
 ```
+
+**Important:** The CLAUDE.md and docs/ live in BOTH the project repo (source of truth) AND the vault (where Claude Code reads them at runtime). Changes to CLAUDE.md must be copied to the vault after editing.
 
 ### Old Code Reference
 Old source files are still available via git history on the `claude/init-project-setup-slgvh` branch if needed:
