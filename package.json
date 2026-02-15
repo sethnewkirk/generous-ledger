@@ -1,7 +1,7 @@
 {
   "name": "generous-ledger",
   "version": "1.0.0",
-  "description": "Obsidian plugin for inline Claude AI assistance via @Claude mentions",
+  "description": "Personal steward for Obsidian, grounded in Christian virtue ethics",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
@@ -32,7 +32,5 @@
     "tslib": "^2.6.2",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.1"
-  }
+  "dependencies": {}
 }
