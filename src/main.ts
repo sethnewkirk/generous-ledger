@@ -27,6 +27,7 @@ export default class GenerousLedgerPlugin extends Plugin {
 		await this.loadSettings();
 		this.sessionManager = new SessionManager(this.app);
 		await this.checkClaudeCodeSetup();
+		this.checkProfileExists();
 
 		this.addSettingTab(new GenerousLedgerSettingTab(this.app, this));
 
@@ -122,6 +123,19 @@ export default class GenerousLedgerPlugin extends Plugin {
 
 		this.claudeCodeReady = true;
 		console.log(`Claude Code ready: v${status.version}`);
+	}
+
+	private checkProfileExists(): void {
+		// Wait for vault to be ready before checking
+		this.app.workspace.onLayoutReady(() => {
+			const profileIndex = this.app.vault.getAbstractFileByPath('profile/index.md');
+			if (!profileIndex) {
+				new Notice(
+					'Welcome to Generous Ledger. Run "Start onboarding" from the command palette to begin.',
+					15000
+				);
+			}
+		});
 	}
 
 	private updateVisualIndicator(editor: Editor) {
