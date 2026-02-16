@@ -4,7 +4,7 @@ import { Prec } from '@codemirror/state';
 import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
 import { ClaudeCodeProcess, checkClaudeCodeVersion } from './claude-process';
 import { SessionManager } from './session-manager';
-import { StreamMessage, extractStreamingText, extractTextContent, extractSessionId, extractError, extractCurrentToolUse } from './stream-parser';
+import { StreamMessage, extractStreamingText, extractTextContent, extractSessionId, extractError, extractCurrentToolUse, extractThinkingAndText, separateThinkingFromAnswer } from './stream-parser';
 import { ResponseRenderer } from './renderer';
 import {
 	claudeIndicatorField,
@@ -155,7 +155,24 @@ export default class GenerousLedgerPlugin extends Plugin {
 	private handleEnterKey(view: EditorView): boolean {
 		if (this.processingRequest) return false;
 
-		const cursor = view.state.selection.main.head;
+		const sel = view.state.selection.main;
+
+		// Selection mode: if text is selected and contains @Claude, use the selection as the prompt
+		if (sel.from !== sel.to) {
+			const selectedText = view.state.sliceDoc(sel.from, sel.to);
+			if (hasClaudeMention(selectedText)) {
+				const selectionBounds: ParagraphBounds = {
+					from: sel.from,
+					to: sel.to,
+					text: selectedText,
+				};
+				const mentionPos = findClaudeMentionInView(view);
+				this.triggerClaudeAsync(view, selectionBounds, mentionPos);
+				return true;
+			}
+		}
+
+		const cursor = sel.head;
 		const paragraph = getParagraphAtCursor(view.state, cursor);
 
 		if (!paragraph) return false;
@@ -233,7 +250,8 @@ export default class GenerousLedgerPlugin extends Plugin {
 			const vaultPath = (this.app.vault.adapter as any).basePath;
 
 			const renderer = new ResponseRenderer();
-			renderer.init(editor);
+			const cmView = this.getEditorView(editor);
+			renderer.init(editor, cmView?.scrollDOM);
 
 			const proc = new ClaudeCodeProcess();
 			this.currentProcess = proc;
@@ -243,12 +261,6 @@ export default class GenerousLedgerPlugin extends Plugin {
 
 			proc.on('message', (msg: StreamMessage) => {
 				messages.push(msg);
-				if (msg.type === 'result' || msg.subtype === 'error_during_execution') {
-					console.log('[GL] RESULT MSG:', JSON.stringify(msg));
-				} else {
-					console.log('[GL] msg type:', msg.type, 'subtype:', msg.subtype);
-				}
-
 				if (msg.type === 'stream_event' || msg.type === 'assistant') {
 					const streamText = extractStreamingText(messages);
 					const contentText = extractTextContent(messages);
@@ -279,12 +291,24 @@ export default class GenerousLedgerPlugin extends Plugin {
 
 				const error = extractError(messages);
 				if (error) {
-					console.error('[GL] execution error:', error);
+					// error is displayed to user via renderError below
 					renderer.finalize('', editor);
 					this.renderError(editor, error);
 				} else {
-					const finalText = lastRenderedText || extractTextContent(messages);
-					renderer.finalize(finalText, editor);
+					const { thinking: streamThinking, text: streamText } = extractThinkingAndText(messages);
+					const finalText = streamText || lastRenderedText || extractTextContent(messages);
+					let thinkingContent = streamThinking || undefined;
+					if (!thinkingContent && finalText) {
+						const separated = separateThinkingFromAnswer(finalText);
+						if (separated.thinking) {
+							thinkingContent = separated.thinking;
+							renderer.finalize(separated.answer, editor, thinkingContent);
+						} else {
+							renderer.finalize(finalText, editor);
+						}
+					} else {
+						renderer.finalize(finalText, editor, thinkingContent);
+					}
 				}
 
 				view.dispatch({ effects: setIndicatorState.of(null) });
@@ -404,7 +428,8 @@ export default class GenerousLedgerPlugin extends Plugin {
 			const vaultPath = (this.app.vault.adapter as any).basePath;
 
 			const renderer = new ResponseRenderer();
-			renderer.init(editor);
+			const cmView = this.getEditorView(editor);
+			renderer.init(editor, cmView?.scrollDOM);
 
 			const proc = new ClaudeCodeProcess();
 			this.currentProcess = proc;
@@ -432,12 +457,24 @@ export default class GenerousLedgerPlugin extends Plugin {
 
 				const error = extractError(messages);
 				if (error) {
-					console.error('[GL] execution error:', error);
+					// error is displayed to user via renderError below
 					renderer.finalize('', editor);
 					this.renderError(editor, error);
 				} else {
-					const finalText = lastRenderedText || extractTextContent(messages);
-					renderer.finalize(finalText, editor);
+					const { thinking: streamThinking, text: streamText } = extractThinkingAndText(messages);
+					const finalText = streamText || lastRenderedText || extractTextContent(messages);
+					let thinkingContent = streamThinking || undefined;
+					if (!thinkingContent && finalText) {
+						const separated = separateThinkingFromAnswer(finalText);
+						if (separated.thinking) {
+							thinkingContent = separated.thinking;
+							renderer.finalize(separated.answer, editor, thinkingContent);
+						} else {
+							renderer.finalize(finalText, editor);
+						}
+					} else {
+						renderer.finalize(finalText, editor, thinkingContent);
+					}
 				}
 				this.currentProcess = null;
 				this.processingRequest = false;

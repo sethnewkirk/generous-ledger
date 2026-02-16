@@ -28,30 +28,49 @@
 	}
 }
 
-/* Claude response callout styling */
+/* ── Steward Response Callout ── */
 .callout[data-callout="claude"] {
 	--callout-color: 147, 112, 219;
-	--callout-icon: lucide-brain-circuit;
+	--callout-icon: lucide-book-open;
+	border-left-width: 4px;
+	border-radius: 6px;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
 .callout[data-callout="claude"] .callout-title {
-	color: rgb(147, 112, 219);
 	font-weight: 600;
 }
 
 .callout[data-callout="claude"] .callout-content {
-	color: rgb(147, 112, 219);
-	line-height: 1.6;
+	color: var(--text-normal);
+	font-family: 'Garamond', 'EB Garamond', Georgia, serif;
+	line-height: 1.7;
 }
 
-/* Dark theme adjustments */
-.theme-dark .callout[data-callout="claude"] .callout-content {
-	color: rgb(177, 156, 217);
+/* Background tint — light theme */
+.theme-light .callout[data-callout="claude"] {
+	background-color: rgba(147, 112, 219, 0.04);
 }
 
-/* Light theme adjustments */
-.theme-light .callout[data-callout="claude"] .callout-content {
-	color: rgb(117, 82, 189);
+/* Background tint — dark theme */
+.theme-dark .callout[data-callout="claude"] {
+	background-color: rgba(147, 112, 219, 0.06);
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* Thinking text — muted italic inside callout */
+.callout[data-callout="claude"] .callout-content em {
+	color: var(--text-muted);
+	font-size: 0.92em;
+	opacity: 0.85;
+}
+
+/* Thinking/answer separator */
+.callout[data-callout="claude"] .callout-content hr {
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	margin: 0.8em 0;
+	opacity: 0.5;
 }
 
 /* Error callout for Claude errors */

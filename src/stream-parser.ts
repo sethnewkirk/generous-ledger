@@ -4,8 +4,9 @@ export interface StreamMessage {
 	message?: {
 		role: string;
 		content: Array<{
-			type: 'text' | 'tool_use' | 'tool_result';
+			type: 'text' | 'tool_use' | 'tool_result' | 'thinking';
 			text?: string;
+			thinking?: string;
 			name?: string;
 			input?: any;
 		}>;
@@ -117,4 +118,47 @@ export function extractCurrentToolUse(messages: StreamMessage[]): string | null 
 		}
 	}
 	return null;
+}
+
+export function extractThinkingAndText(messages: StreamMessage[]): { thinking: string; text: string } {
+	let thinking = '';
+	let text = '';
+	const blockTypes = new Map<number, string>();
+
+	for (const msg of messages) {
+		if (msg.type !== 'stream_event' || !msg.event) continue;
+		const evt = msg.event;
+
+		if (evt.type === 'content_block_start' && evt.index !== undefined) {
+			const blockType = evt.content_block?.type || 'text';
+			blockTypes.set(evt.index, blockType);
+			if (evt.content_block?.text) {
+				if (blockType === 'thinking') {
+					thinking += evt.content_block.text;
+				} else {
+					text += evt.content_block.text;
+				}
+			}
+		}
+
+		if (evt.type === 'content_block_delta' && evt.delta?.text) {
+			const blockType = blockTypes.get(evt.index ?? -1) || 'text';
+			if (evt.delta.type === 'thinking_delta' || blockType === 'thinking') {
+				thinking += evt.delta.text;
+			} else {
+				text += evt.delta.text;
+			}
+		}
+	}
+
+	return { thinking, text };
+}
+
+export function separateThinkingFromAnswer(content: string): { thinking: string | null; answer: string } {
+	// Look for explicit thinking tags only — no paragraph heuristic
+	const match = content.match(/^<(?:thinking|antThinking)>([\s\S]*?)<\/(?:thinking|antThinking)>\s*([\s\S]*)$/);
+	if (match) {
+		return { thinking: match[1].trim(), answer: match[2].trim() };
+	}
+	return { thinking: null, answer: content };
 }

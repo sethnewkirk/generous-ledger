@@ -66,12 +66,7 @@ export class ClaudeCodeProcess extends EventEmitter {
 			}
 		});
 
-		this.process.stderr?.on('data', (chunk: Buffer) => {
-			console.error('[GL] stderr:', chunk.toString());
-		});
-
 		this.process.on('close', (code) => {
-			console.log('[GL] process exited with code:', code);
 			this.emit('close', code);
 		});
 

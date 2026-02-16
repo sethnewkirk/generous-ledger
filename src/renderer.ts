@@ -1,22 +1,5 @@
 import { Editor } from 'obsidian';
 
-function separateThinkingFromAnswer(content: string): { thinking: string | null; answer: string } {
-	const paragraphs = content.split(/\n\n+/).filter(p => p.trim());
-
-	if (paragraphs.length <= 1) {
-		return { thinking: null, answer: content };
-	}
-
-	if (paragraphs.length === 2 && content.length < 100) {
-		return { thinking: null, answer: content };
-	}
-
-	const answer = paragraphs[paragraphs.length - 1];
-	const thinking = paragraphs.slice(0, -1).join('\n\n');
-
-	return { thinking, answer };
-}
-
 export interface InsertPosition {
 	line: number;
 	ch: number;
@@ -24,10 +7,13 @@ export interface InsertPosition {
 
 export class ResponseRenderer {
 	private insertPos: InsertPosition | null = null;
+	private scrollDOM: HTMLElement | null = null;
 
-	init(editor: Editor): InsertPosition | null {
+	init(editor: Editor, scrollDOM?: HTMLElement | null): InsertPosition | null {
 		const cursor = editor.getCursor();
 		const insertLine = cursor.line + 1;
+
+		this.scrollDOM = scrollDOM ?? null;
 
 		editor.replaceRange(
 			'\n\n> [!claude] Claude\n> ',
@@ -38,6 +24,12 @@ export class ResponseRenderer {
 		return this.insertPos;
 	}
 
+	private isNearBottom(): boolean {
+		if (!this.scrollDOM) return true;
+		const { scrollTop, scrollHeight, clientHeight } = this.scrollDOM;
+		return scrollHeight - scrollTop - clientHeight < 150;
+	}
+
 	append(text: string, editor: Editor): void {
 		if (!this.insertPos) return;
 
@@ -46,35 +38,46 @@ export class ResponseRenderer {
 			.map(line => line.trim() ? `> ${line}` : '>')
 			.join('\n');
 
+		const wasNearBottom = this.isNearBottom();
+		const savedScrollTop = this.scrollDOM?.scrollTop;
+
 		const currentLine = editor.lastLine();
 		editor.replaceRange(
 			formatted,
 			this.insertPos,
 			{ line: currentLine, ch: editor.getLine(currentLine).length }
 		);
+
+		if (wasNearBottom) {
+			editor.scrollIntoView({
+				from: { line: editor.lastLine(), ch: 0 },
+				to: { line: editor.lastLine(), ch: 0 }
+			});
+		} else if (this.scrollDOM && savedScrollTop !== undefined) {
+			this.scrollDOM.scrollTop = savedScrollTop;
+		}
 	}
 
-	finalize(finalContent: string, editor: Editor): void {
+	finalize(text: string, editor: Editor, thinking?: string): void {
 		if (!this.insertPos) return;
-
-		const { thinking, answer } = separateThinkingFromAnswer(finalContent);
 
 		let formatted: string;
 
-		if (thinking) {
-			const thinkingLines = thinking.split('\n').map(line => `> > ${line}`);
-			const answerLines = answer.split('\n').map(line => line.trim() ? `> ${line}` : '>');
+		if (thinking && thinking.trim()) {
+			const thinkingLines = thinking.split('\n').map(line => line.trim() ? `> *${line}*` : '>');
+			const answerLines = text.split('\n').map(line => line.trim() ? `> ${line}` : '>');
 
 			const parts = [
-				'> > [!note]- Thinking',
 				...thinkingLines,
 				'>',
-				...answerLines
+				'> ---',
+				'>',
+				...answerLines,
 			];
 
 			formatted = parts.join('\n');
 		} else {
-			formatted = finalContent
+			formatted = text
 				.split('\n')
 				.map(line => line.trim() ? `> ${line}` : '>')
 				.join('\n');
@@ -86,5 +89,10 @@ export class ResponseRenderer {
 			this.insertPos,
 			{ line: currentLine, ch: editor.getLine(currentLine).length }
 		);
+
+		editor.scrollIntoView({
+			from: { line: editor.lastLine(), ch: 0 },
+			to: { line: editor.lastLine(), ch: 0 }
+		});
 	}
 }
