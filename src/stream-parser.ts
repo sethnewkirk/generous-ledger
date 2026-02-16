@@ -24,6 +24,8 @@ export interface StreamMessage {
 	};
 	session_id?: string;
 	result?: string;
+	is_error?: boolean;
+	errors?: string[];
 }
 
 export function extractTextContent(messages: StreamMessage[]): string {
@@ -62,9 +64,31 @@ export function extractStreamingText(messages: StreamMessage[]): string {
 }
 
 export function extractSessionId(messages: StreamMessage[]): string | null {
+	// Use session_id from the result message — it's the authoritative source
+	for (const msg of messages) {
+		if (msg.type === 'result' && msg.session_id) {
+			return msg.session_id;
+		}
+	}
+	// Fallback to any message with session_id
 	for (const msg of messages) {
 		if (msg.session_id) {
 			return msg.session_id;
+		}
+	}
+	return null;
+}
+
+export function extractError(messages: StreamMessage[]): string | null {
+	for (const msg of messages) {
+		if (msg.type === 'result' && msg.is_error) {
+			if (msg.errors && msg.errors.length > 0) {
+				return msg.errors.join('; ');
+			}
+			if (msg.result) {
+				return msg.result;
+			}
+			return 'Unknown error during execution';
 		}
 	}
 	return null;

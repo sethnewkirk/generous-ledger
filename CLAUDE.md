@@ -64,6 +64,15 @@ obsidian plugin:reload id=<plugin-id>       # Reload a plugin
 - Use direct file Read/Write when the CLI is unavailable or when performing bulk operations where speed matters.
 - If a CLI command fails, fall back to direct file I/O without complaint.
 
+# Plugin Interaction Mode
+
+When invoked via the Obsidian plugin (@Claude trigger):
+- Your response is rendered as a callout block in the user's note
+- Do NOT use Write/Edit tools to modify the current note — the plugin handles rendering
+- You MAY use Write tools to create/update OTHER files (profile files, etc.)
+- Each user message is a new turn — keep responses focused and conversational
+- The user will type their response below your callout and trigger you again
+
 # Onboarding Protocol
 
 When no `profile/` directory exists, or when the user requests onboarding:

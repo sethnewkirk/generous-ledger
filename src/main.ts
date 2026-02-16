@@ -4,7 +4,7 @@ import { Prec } from '@codemirror/state';
 import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
 import { ClaudeCodeProcess, checkClaudeCodeVersion } from './claude-process';
 import { SessionManager } from './session-manager';
-import { StreamMessage, extractStreamingText, extractSessionId, extractCurrentToolUse } from './stream-parser';
+import { StreamMessage, extractStreamingText, extractTextContent, extractSessionId, extractError, extractCurrentToolUse } from './stream-parser';
 import { ResponseRenderer } from './renderer';
 import {
 	claudeIndicatorField,
@@ -158,13 +158,27 @@ export default class GenerousLedgerPlugin extends Plugin {
 		const cursor = view.state.selection.main.head;
 		const paragraph = getParagraphAtCursor(view.state, cursor);
 
-		if (!paragraph || !hasClaudeMention(paragraph.text)) {
-			return false;
+		if (!paragraph) return false;
+
+		// Standard @Claude trigger
+		if (hasClaudeMention(paragraph.text)) {
+			const mentionPos = findClaudeMentionInView(view);
+			this.triggerClaudeAsync(view, paragraph, mentionPos);
+			return true;
 		}
 
-		const mentionPos = findClaudeMentionInView(view);
-		this.triggerClaudeAsync(view, paragraph, mentionPos);
-		return true;
+		// Onboarding mode: trigger without @Claude in Onboarding.md
+		const activeFile = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+		if (activeFile?.path === 'Onboarding.md') {
+			const text = paragraph.text.trim();
+			// Don't trigger on empty lines, callout blocks, frontmatter, or headings
+			if (text && !text.startsWith('>') && !text.startsWith('---') && !text.startsWith('#')) {
+				this.triggerClaudeAsync(view, paragraph, null);
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private triggerClaude(view: EditorView): void {
@@ -229,10 +243,17 @@ export default class GenerousLedgerPlugin extends Plugin {
 
 			proc.on('message', (msg: StreamMessage) => {
 				messages.push(msg);
+				if (msg.type === 'result' || msg.subtype === 'error_during_execution') {
+					console.log('[GL] RESULT MSG:', JSON.stringify(msg));
+				} else {
+					console.log('[GL] msg type:', msg.type, 'subtype:', msg.subtype);
+				}
 
-				if (msg.type === 'stream_event') {
-					const newText = extractStreamingText(messages);
-					if (newText !== lastRenderedText) {
+				if (msg.type === 'stream_event' || msg.type === 'assistant') {
+					const streamText = extractStreamingText(messages);
+					const contentText = extractTextContent(messages);
+					const newText = streamText || contentText;
+					if (newText && newText !== lastRenderedText) {
 						lastRenderedText = newText;
 						setTimeout(() => renderer.append(newText, editor), 0);
 					}
@@ -256,7 +277,15 @@ export default class GenerousLedgerPlugin extends Plugin {
 					await this.sessionManager.setSessionId(file, newSessionId);
 				}
 
-				renderer.finalize(lastRenderedText, editor);
+				const error = extractError(messages);
+				if (error) {
+					console.error('[GL] execution error:', error);
+					renderer.finalize('', editor);
+					this.renderError(editor, error);
+				} else {
+					const finalText = lastRenderedText || extractTextContent(messages);
+					renderer.finalize(finalText, editor);
+				}
 
 				view.dispatch({ effects: setIndicatorState.of(null) });
 				this.currentProcess = null;
@@ -314,31 +343,129 @@ export default class GenerousLedgerPlugin extends Plugin {
 	}
 
 	private async startOnboarding(): Promise<void> {
-		const vaultPath = (this.app.vault.adapter as any).basePath;
 		const onboardingPath = 'Onboarding.md';
 
+		// Always start fresh — delete any existing onboarding file to clear stale session IDs
 		const existing = this.app.vault.getAbstractFileByPath(onboardingPath);
-		if (!existing) {
-			await this.app.vault.create(onboardingPath,
-				'---\nclaude_session_id:\n---\n\n@Claude Begin onboarding. I am a new user of this vault.\n'
-			);
+		if (existing instanceof TFile) {
+			await this.app.vault.delete(existing);
 		}
+		await this.app.vault.create(onboardingPath,
+			'---\nclaude_session_id:\n---\n# Onboarding\n'
+		);
 
 		const file = this.app.vault.getAbstractFileByPath(onboardingPath);
 		if (file instanceof TFile) {
 			const leaf = this.app.workspace.getLeaf(false);
 			await leaf.openFile(file);
 
-			// Give the editor time to initialize, then trigger Claude
+			const onboardingPrompt = [
+				'CONTEXT: You are a personal steward — not a game assistant, not an RPG character, not a creative writing partner.',
+				'You manage a real person\'s commitments, relationships, and schedule. Read CLAUDE.md for your full operating instructions.',
+				'You are responding inside an Obsidian note. Your response is rendered as a callout block — do NOT use the Write tool on this file.',
+				'\n\n',
+				'TASK: Begin the Onboarding Protocol defined in CLAUDE.md. Say the opening statement exactly as written there, then ask the FIRST question only (identity and station).',
+				'This is about the real human using this vault. Ask about their actual life — name, vocation, household, church tradition.',
+				'\n\n',
+				'CONSTRAINTS:',
+				'- Do NOT explore the vault or read any notes.',
+				'- Do NOT create any files yet.',
+				'- Do NOT use any tools except Read on CLAUDE.md and docs/FRAMEWORK.md.',
+				'- Ask exactly ONE question, then stop and wait.',
+				'- Use a formal, competent tone. No fantasy language, no roleplay.',
+			].join('\n');
+
+			// Give the editor time to initialize, then send the prompt directly
 			setTimeout(() => {
-				const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (view) {
-					const cmView = this.getEditorView(view.editor);
-					if (cmView) {
-						this.triggerClaude(cmView);
+				this.sendPromptToEditor(file, onboardingPrompt);
+			}, 500);
+		}
+	}
+
+	private async sendPromptToEditor(file: TFile, prompt: string): Promise<void> {
+		if (this.processingRequest) {
+			new Notice('Claude is already processing a request.');
+			return;
+		}
+
+		if (!this.claudeCodeReady) {
+			new Notice('Claude Code not ready. Check settings or install the CLI.');
+			return;
+		}
+
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView || activeView.file !== file) return;
+
+		const editor = activeView.editor;
+		this.processingRequest = true;
+
+		try {
+			const sessionResult = await this.sessionManager.getSessionId(file);
+			const vaultPath = (this.app.vault.adapter as any).basePath;
+
+			const renderer = new ResponseRenderer();
+			renderer.init(editor);
+
+			const proc = new ClaudeCodeProcess();
+			this.currentProcess = proc;
+
+			const messages: StreamMessage[] = [];
+			let lastRenderedText = '';
+
+			proc.on('message', (msg: StreamMessage) => {
+				messages.push(msg);
+
+				if (msg.type === 'stream_event' || msg.type === 'assistant') {
+					const newText = extractStreamingText(messages) || extractTextContent(messages);
+					if (newText && newText !== lastRenderedText) {
+						lastRenderedText = newText;
+						setTimeout(() => renderer.append(newText, editor), 0);
 					}
 				}
-			}, 500);
+			});
+
+			proc.on('close', async () => {
+				const newSessionId = extractSessionId(messages);
+				if (newSessionId) {
+					await this.sessionManager.setSessionId(file, newSessionId);
+				}
+
+				const error = extractError(messages);
+				if (error) {
+					console.error('[GL] execution error:', error);
+					renderer.finalize('', editor);
+					this.renderError(editor, error);
+				} else {
+					const finalText = lastRenderedText || extractTextContent(messages);
+					renderer.finalize(finalText, editor);
+				}
+				this.currentProcess = null;
+				this.processingRequest = false;
+			});
+
+			proc.on('error', (error: Error) => {
+				console.error('Claude Code error:', error);
+				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+				new Notice(`Claude error: ${errorMessage}`);
+				this.renderError(editor, errorMessage);
+				this.currentProcess = null;
+				this.processingRequest = false;
+			});
+
+			await proc.query(prompt, {
+				cwd: vaultPath,
+				sessionId: sessionResult.sessionId || undefined,
+				model: this.settings.model,
+				claudeCodePath: this.settings.claudeCodePath,
+				timeoutMs: 15 * 60 * 1000,
+			});
+
+		} catch (error) {
+			console.error('Claude request error:', error);
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			new Notice(`Claude error: ${errorMessage}`);
+			this.renderError(editor, errorMessage);
+			this.processingRequest = false;
 		}
 	}
 
