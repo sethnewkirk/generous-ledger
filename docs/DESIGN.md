@@ -88,13 +88,13 @@ A set of markdown files in the vault, organized by dimension. Open-ended — new
 
 **Loaded on demand (by the engine based on request context):**
 - **`identity.md`** — Name, age, vocation, church/tradition, life stage, household. Most stable file.
-- **`relationships.md`** — People in the user's life: name, role, key dates (birthday, anniversary), contact frequency, current state, obligations/concerns.
-- **`commitments.md`** — Active goals, projects, promises. Both concrete and formational. Status, timeframe, accountability.
+- **`people/`** — One file per person in the user's life. Each file has frontmatter: name, role, circle, birthday, anniversary, contact_frequency, status. Body contains notes tagged `[stated]`/`[observed]`.
+- **`commitments/`** — One file per commitment. Each file has frontmatter: title, category, status, priority, deadline, timeframe, stakeholder. Body contains details and progress notes.
 - **`patterns.md`** — Assistant's observations. Written using the virtue framework's observation principles (diagnose by ordering, map vocations, measure trajectories, note avoidance). Tagged as `[observed]` vs `[stated]`.
 - **`current.md`** — This week's state. Active concerns, upcoming events, recent developments. Most volatile file, refreshed frequently.
 
 **Created when needed:**
-- `health.md`, `finances.md`, `vocation.md`, individual relationship files, or any new dimension the user's life requires. The assistant proposes new files when a dimension grows substantial enough to warrant dedicated tracking.
+- `health.md`, `finances.md`, `vocation.md`, or any new dimension the user's life requires. The assistant proposes new files when a dimension grows substantial enough to warrant dedicated tracking.
 
 ### Design Principles
 
