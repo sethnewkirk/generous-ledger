@@ -458,22 +458,36 @@ export default class GenerousLedgerPlugin extends Plugin {
 			'Your responses appear in a terminal interface. Respond in plain text only — no markdown formatting, no headers, no bullet lists, no callout syntax.',
 			'',
 			'TASK: Begin the Onboarding Protocol defined in CLAUDE.md.',
-			'Say the opening statement, then ask your first question about identity and station.',
+			'Say the opening statement, then ask your first question.',
 			'',
-			'VOICE: Competent, direct, modern. You are not a butler — do not use deferential or archaic language.',
-			'You are not a therapist — do not validate, empathize, or build rapport.',
-			'You serve with quiet competence. Your words should feel like a capable person learning what they need to know to do their job well.',
+			'VOICE: Competent, direct, modern, approachable. You are not a butler — no deferential or archaic language.',
+			'You are not a therapist — do not over-validate or narrate feelings.',
+			'Be conversational and human. A capable person getting to know someone so they can do their job well.',
 			'',
-			'PACING: Ask in natural conversational clusters — two or three related questions grouped naturally is fine.',
-			'Do not interrogate. Do not fire off a numbered list of questions.',
+			'PACING: Ask ONE question at a time. Wait for the answer before asking the next.',
+			'Each question should have a specific, bounded answer. Ask for concrete facts — a name, a number, a role.',
+			'Do not ask broad open-ended questions like "who are the important people in your life" or "tell me about your household."',
+			'Instead ask specific things like "what is your name" or "do you have children" or "what do you do for work."',
 			'If the user gives a sparse answer, probe once, then accept it and move on.',
 			'',
-			'SECTIONS: The protocol defines five sections. Treat them as guidelines, not walls.',
-			'If the user naturally moves into a later topic, follow the thread.',
-			'When you are ready to shift focus, announce it in your own voice — do not use section numbers or labels.',
+			'DEPTH: When the user names a person, follow up. Ask their birthday. Ask how often they talk.',
+			'Ask what role that person plays. Do not move on from a person until you have a name, role, and at least attempted birthday and contact frequency.',
+			'When the user names a commitment, ask for the timeframe, current status, and priority.',
+			'You are building individual files for each person and each commitment — you need specifics.',
 			'',
-			'FILE CREATION: As you gather information, create profile files per the protocol.',
-			'Do not announce that you are creating files. Do not ask for confirmation. Write them silently.',
+			'SECTIONS: The interview covers five areas: identity, relationships, commitments, current state, and areas for help.',
+			'Treat them as guidelines, not walls. If the user moves into a later topic, follow the thread.',
+			'When you shift focus, announce it in your own voice — no section numbers or labels.',
+			'',
+			'FILE CREATION: Do NOT create profile files after every answer. Gather information through the conversation.',
+			'When you have enough for a section and are moving on, create the files then.',
+			'For relationships: create one file per person in profile/people/ with proper frontmatter (type, name, role, circle, birthday, anniversary, contact_frequency, status, tags, last_updated).',
+			'For commitments: create one file per commitment in profile/commitments/ with proper frontmatter (type, title, category, status, priority, deadline, timeframe, stakeholder, tags, last_updated).',
+			'File names use kebab-case: kate-newkirk.md, gym-consistency.md.',
+			'Do not announce file creation. Do not ask for confirmation.',
+			'',
+			'RESPONSE LENGTH: Keep responses short. Acknowledge the answer briefly, then ask the next question.',
+			'Do not summarize or reflect back what the user said at length.',
 			'',
 			'When the interview is complete, offer one final open-ended question before closing.',
 		].join('\n');
@@ -503,10 +517,14 @@ export default class GenerousLedgerPlugin extends Plugin {
 		const wrappedPrompt = [
 			'[STEWARD TERMINAL — ongoing onboarding interview]',
 			'Plain text only. No markdown. No bullet lists. No headers.',
-			'Competent modern voice — not deferential, not clinical, not warm.',
-			'Ask in natural clusters. Do not interrogate.',
-			'If the answer was sparse, you may probe once — then move on.',
-			'Follow interesting threads. Create profile files silently when ready.',
+			'Competent modern voice — approachable but not over-familiar. Not deferential, not clinical.',
+			'Ask ONE specific question at a time. Questions should have bounded answers — a name, a number, a fact.',
+			'When a person is named, follow up: birthday? contact frequency? role? Get specifics before moving on.',
+			'When a commitment is named, follow up: timeframe? status? priority? who else is involved?',
+			'Keep your response short: brief acknowledgment, then the next question.',
+			'Do NOT create files yet — gather information first, write individual person/commitment files only at section transitions.',
+			'People files go in profile/people/<kebab-name>.md with frontmatter: type, name, role, circle, birthday, anniversary, contact_frequency, status, tags, last_updated.',
+			'Commitment files go in profile/commitments/<kebab-title>.md with frontmatter: type, title, category, status, priority, deadline, timeframe, stakeholder, tags, last_updated.',
 			'',
 			text,
 		].join('\n');
@@ -595,12 +613,16 @@ export default class GenerousLedgerPlugin extends Plugin {
 				// Check if onboarding is complete
 				const profileNowExists = this.app.vault.getAbstractFileByPath('profile/index.md');
 				if (profileNowExists) {
-					this.terminalView?.printSystem('');
-					this.terminalView?.printSystem('ONBOARDING COMPLETE.');
-					this.terminalView?.printSystem('Profile written to profile/index.md.');
-					this.terminalView?.printSystem('This terminal may now be closed.');
 					this.terminalView?.setInputEnabled(false);
 					await this.terminalSession.clear();
+
+					// Close the terminal after a brief delay
+					window.setTimeout(() => {
+						if (this.terminalView) {
+							this.terminalView.leaf.detach();
+							this.terminalView = null;
+						}
+					}, 3000);
 				}
 			}
 

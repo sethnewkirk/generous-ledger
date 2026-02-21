@@ -162,6 +162,7 @@ export class OnboardingTerminalView extends ItemView {
 
 	printUser(text: string): void {
 		// Clear content and show loading spinner
+		this.hideCursor();
 		this.contentEl_.empty();
 		this.contentEl_.removeClass('gl-content--question', 'gl-content--answer');
 		this.showSpinner();
@@ -258,9 +259,13 @@ export class OnboardingTerminalView extends ItemView {
 		echoEl.addClass('gl-terminal__echo');
 		this.contentEl_.appendChild(echoEl);
 
-		// Mirror input to echo element
+		// Show blinking cursor after the echo text
+		this.showCursor();
+
+		// Mirror input to echo element, cursor follows text
 		const updateEcho = () => {
 			echoEl.textContent = '> ' + this.inputEl.value;
+			echoEl.appendChild(this.cursorEl);
 		};
 		this.inputEl.addEventListener('input', updateEcho);
 		updateEcho();
