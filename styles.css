@@ -77,3 +77,188 @@
 .callout[data-callout="error"] {
 	--callout-color: 220, 38, 38;
 }
+
+/* ── Terminal View ───────────────────────────────────────── */
+
+/* Fullscreen takeover */
+.gl-terminal-fullscreen .workspace-ribbon,
+.gl-terminal-fullscreen .sidebar-toggle-button,
+.gl-terminal-fullscreen .workspace-tab-header-container,
+.gl-terminal-fullscreen .titlebar,
+.gl-terminal-fullscreen .workspace-tab-header-tab-list,
+.gl-terminal-fullscreen .mod-left-split,
+.gl-terminal-fullscreen .mod-right-split,
+.gl-terminal-fullscreen .status-bar {
+	display: none !important;
+}
+.gl-terminal-fullscreen .workspace-split.mod-root {
+	margin: 0 !important;
+}
+.gl-terminal-fullscreen .mod-root .workspace-leaf {
+	border: none !important;
+}
+.gl-terminal-fullscreen .workspace-leaf-content[data-type="generous-ledger-terminal"] .view-header {
+	display: none !important;
+}
+
+/* Root */
+.gl-terminal {
+	background: #0a0a0a;
+	height: 100%;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	padding: 0;
+	margin: 0;
+	font-family: 'SF Mono', 'Fira Code', 'Courier New', Courier, monospace;
+	font-size: 14px;
+	color: #00ff41;
+	position: relative;
+	overflow: hidden;
+}
+
+/* Screen — fills terminal, centers content */
+.gl-terminal__screen {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	overflow: hidden;
+	position: relative;
+	background: #0a0a0a;
+}
+
+/* Scanlines */
+.gl-terminal__screen::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: repeating-linear-gradient(
+		0deg, transparent, transparent 3px,
+		rgba(0, 0, 0, 0.08) 3px, rgba(0, 0, 0, 0.08) 4px
+	);
+	pointer-events: none;
+	z-index: 10;
+}
+
+/* Vignette */
+.gl-terminal__screen::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: radial-gradient(ellipse at center, transparent 65%, rgba(0, 0, 0, 0.5) 100%);
+	pointer-events: none;
+	z-index: 11;
+}
+
+/* System messages — top left, small, dim */
+.gl-terminal__system {
+	position: absolute;
+	top: 2rem;
+	left: 3rem;
+	z-index: 12;
+}
+
+.gl-terminal__system .gl-terminal__line {
+	color: #1a4d1a;
+	font-size: 0.82em;
+	line-height: 1.5;
+}
+
+/* Centered content area — holds question or answer */
+.gl-terminal__content {
+	max-width: 60ch;
+	width: 100%;
+	padding: 0 3rem;
+	z-index: 12;
+	transition: opacity 0.3s ease;
+}
+
+.gl-terminal__content.gl-content--question .gl-terminal__line {
+	color: #00ff41;
+	line-height: 1.7;
+	text-shadow: 0 0 6px rgba(0, 255, 65, 0.4);
+	padding: 0.1em 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* Answer mode — user's text echoed in center */
+.gl-terminal__content.gl-content--answer {
+	opacity: 1;
+}
+
+.gl-terminal__echo {
+	color: #66ffaa;
+	line-height: 1.7;
+	text-shadow: 0 0 6px rgba(102, 255, 170, 0.3);
+	font-size: 1em;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* Hidden input — offscreen but focusable */
+.gl-terminal__hidden-input {
+	position: absolute;
+	left: -9999px;
+	opacity: 0;
+	width: 0;
+	height: 0;
+}
+
+/* Loading spinner — centered, pulsing */
+.gl-terminal__spinner {
+	z-index: 12;
+	margin-top: 2rem;
+}
+
+.gl-terminal__spinner.gl-spinner--hidden {
+	display: none;
+}
+
+.gl-terminal__spinner-char {
+	color: #00ff41;
+	font-size: 1.2em;
+	text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+	display: inline-block;
+	animation: gl-spin 0.6s steps(4) infinite;
+}
+
+@keyframes gl-spin {
+	0%   { content: '|'; }
+	25%  { content: '/'; }
+	50%  { content: '—'; }
+	75%  { content: '\\'; }
+}
+
+/* Use actual text rotation since content doesn't animate */
+@keyframes gl-spinner-rotate {
+	0%   { transform: rotate(0deg); }
+	100% { transform: rotate(360deg); }
+}
+
+.gl-terminal__spinner-char {
+	animation: gl-spinner-rotate 1s linear infinite;
+}
+
+/* Blinking block cursor */
+.gl-terminal__cursor {
+	display: inline-block;
+	width: 0.55em;
+	height: 1.05em;
+	background: #00ff41;
+	margin-left: 1px;
+	vertical-align: text-bottom;
+	animation: gl-blink 1s step-end infinite;
+	box-shadow: 0 0 6px rgba(0, 255, 65, 0.4);
+}
+
+.gl-terminal__cursor.gl-cursor--hidden {
+	display: none;
+}
+
+@keyframes gl-blink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0; }
+}

@@ -1,11 +1,13 @@
-import { Editor, MarkdownView, Notice, Plugin, TFile } from 'obsidian';
+import { Editor, MarkdownView, Notice, Plugin } from 'obsidian';
 import { EditorView, keymap } from '@codemirror/view';
 import { Prec } from '@codemirror/state';
 import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
-import { ClaudeCodeProcess, checkClaudeCodeVersion } from './claude-process';
+import { ClaudeCodeProcess, ClaudeCodeOptions, checkClaudeCodeVersion } from './claude-process';
 import { SessionManager } from './session-manager';
 import { StreamMessage, extractStreamingText, extractTextContent, extractSessionId, extractError, extractCurrentToolUse, extractThinkingAndText, separateThinkingFromAnswer } from './stream-parser';
 import { ResponseRenderer } from './renderer';
+import { OnboardingTerminalView, TERMINAL_VIEW_TYPE } from './terminal-view';
+import { TerminalSessionStore } from './terminal-session';
 import {
 	claudeIndicatorField,
 	setIndicatorState,
@@ -22,12 +24,22 @@ export default class GenerousLedgerPlugin extends Plugin {
 	private currentProcess: ClaudeCodeProcess | null = null;
 	private claudeCodeReady = false;
 	private processingRequest = false;
+	private terminalSession: TerminalSessionStore;
+	private terminalView: OnboardingTerminalView | null = null;
 
 	async onload() {
 		await this.loadSettings();
 		this.sessionManager = new SessionManager(this.app);
+		this.terminalSession = new TerminalSessionStore(this);
+		await this.terminalSession.load();
 		await this.checkClaudeCodeSetup();
 		this.checkProfileExists();
+
+		this.registerView(TERMINAL_VIEW_TYPE, (leaf) => {
+			const view = new OnboardingTerminalView(leaf, this);
+			this.terminalView = view;
+			return view;
+		});
 
 		this.addSettingTab(new GenerousLedgerSettingTab(this.app, this));
 
@@ -60,7 +72,7 @@ export default class GenerousLedgerPlugin extends Plugin {
 			id: 'start-onboarding',
 			name: 'Begin onboarding',
 			callback: async () => {
-				await this.startOnboarding();
+				await this.startTerminalOnboarding();
 			}
 		});
 
@@ -93,6 +105,7 @@ export default class GenerousLedgerPlugin extends Plugin {
 
 	onunload() {
 		this.currentProcess?.abort();
+		this.app.workspace.detachLeavesOfType(TERMINAL_VIEW_TYPE);
 		console.log('Generous Ledger plugin unloaded');
 	}
 
@@ -101,7 +114,10 @@ export default class GenerousLedgerPlugin extends Plugin {
 	}
 
 	async saveSettings() {
-		await this.saveData(this.settings);
+		const allData = (await this.loadData()) || {};
+		allData.model = this.settings.model;
+		allData.claudeCodePath = this.settings.claudeCodePath;
+		await this.saveData(allData);
 	}
 
 	private async checkClaudeCodeSetup(): Promise<void> {
@@ -182,17 +198,6 @@ export default class GenerousLedgerPlugin extends Plugin {
 			const mentionPos = findClaudeMentionInView(view);
 			this.triggerClaudeAsync(view, paragraph, mentionPos);
 			return true;
-		}
-
-		// Onboarding mode: trigger without @Claude in Onboarding.md
-		const activeFile = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-		if (activeFile?.path === 'Onboarding.md') {
-			const text = paragraph.text.trim();
-			// Don't trigger on empty lines, callout blocks, frontmatter, or headings
-			if (text && !text.startsWith('>') && !text.startsWith('---') && !text.startsWith('#')) {
-				this.triggerClaudeAsync(view, paragraph, null);
-				return true;
-			}
 		}
 
 		return false;
@@ -366,144 +371,262 @@ export default class GenerousLedgerPlugin extends Plugin {
 		);
 	}
 
-	private async startOnboarding(): Promise<void> {
-		const onboardingPath = 'Onboarding.md';
-
-		// Always start fresh — delete any existing onboarding file to clear stale session IDs
-		const existing = this.app.vault.getAbstractFileByPath(onboardingPath);
-		if (existing instanceof TFile) {
-			await this.app.vault.delete(existing);
+	private async activateTerminalView(): Promise<OnboardingTerminalView> {
+		const existing = this.app.workspace.getLeavesOfType(TERMINAL_VIEW_TYPE);
+		if (existing.length > 0) {
+			this.app.workspace.revealLeaf(existing[0]);
+			this.terminalView = existing[0].view as OnboardingTerminalView;
+			return this.terminalView;
 		}
-		await this.app.vault.create(onboardingPath,
-			'---\nclaude_session_id:\n---\n# Onboarding\n'
-		);
-
-		const file = this.app.vault.getAbstractFileByPath(onboardingPath);
-		if (file instanceof TFile) {
-			const leaf = this.app.workspace.getLeaf(false);
-			await leaf.openFile(file);
-
-			const onboardingPrompt = [
-				'CONTEXT: You are a personal steward — not a game assistant, not an RPG character, not a creative writing partner.',
-				'You manage a real person\'s commitments, relationships, and schedule. Read CLAUDE.md for your full operating instructions.',
-				'You are responding inside an Obsidian note. Your response is rendered as a callout block — do NOT use the Write tool on this file.',
-				'\n\n',
-				'TASK: Begin the Onboarding Protocol defined in CLAUDE.md. Say the opening statement exactly as written there, then ask the FIRST question only (identity and station).',
-				'This is about the real human using this vault. Ask about their actual life — name, vocation, household, church tradition.',
-				'\n\n',
-				'CONSTRAINTS:',
-				'- Do NOT explore the vault or read any notes.',
-				'- Do NOT create any files yet.',
-				'- Do NOT use any tools except Read on CLAUDE.md and docs/FRAMEWORK.md.',
-				'- Ask exactly ONE question, then stop and wait.',
-				'- Use a formal, competent tone. No fantasy language, no roleplay.',
-			].join('\n');
-
-			// Give the editor time to initialize, then send the prompt directly
-			setTimeout(() => {
-				this.sendPromptToEditor(file, onboardingPrompt);
-			}, 500);
-		}
+		const leaf = this.app.workspace.getLeaf('tab');
+		await leaf.setViewState({ type: TERMINAL_VIEW_TYPE, active: true });
+		this.app.workspace.revealLeaf(leaf);
+		return this.terminalView!;
 	}
 
-	private async sendPromptToEditor(file: TFile, prompt: string): Promise<void> {
-		if (this.processingRequest) {
-			new Notice('Claude is already processing a request.');
-			return;
-		}
-
+	private async startTerminalOnboarding(): Promise<void> {
 		if (!this.claudeCodeReady) {
 			new Notice('Claude Code not ready. Check settings or install the CLI.');
 			return;
 		}
 
-		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!activeView || activeView.file !== file) return;
+		const view = await this.activateTerminalView();
+		view.enterFullscreen();
 
-		const editor = activeView.editor;
-		this.processingRequest = true;
-
-		try {
-			const sessionResult = await this.sessionManager.getSessionId(file);
-			const vaultPath = (this.app.vault.adapter as any).basePath;
-
-			const renderer = new ResponseRenderer();
-			const cmView = this.getEditorView(editor);
-			renderer.init(editor, cmView?.scrollDOM);
-
-			const proc = new ClaudeCodeProcess();
-			this.currentProcess = proc;
-
-			const messages: StreamMessage[] = [];
-			let lastRenderedText = '';
-
-			proc.on('message', (msg: StreamMessage) => {
-				messages.push(msg);
-
-				if (msg.type === 'stream_event' || msg.type === 'assistant') {
-					const newText = extractStreamingText(messages) || extractTextContent(messages);
-					if (newText && newText !== lastRenderedText) {
-						lastRenderedText = newText;
-						setTimeout(() => renderer.append(newText, editor), 0);
-					}
+		// Check if profile already exists
+		const profileIndex = this.app.vault.getAbstractFileByPath('profile/index.md');
+		if (profileIndex) {
+			view.printSystem('Profile already exists at profile/index.md.');
+			view.printSystem('Type "redo" to start a new onboarding, or close this tab.');
+			view.setInputEnabled(true);
+			view.setSubmitHandler(async (text: string) => {
+				if (text.trim().toLowerCase() === 'redo') {
+					await this.terminalSession.clear();
+					view.printSystem('Session cleared. Restarting onboarding...');
+					view.setInputEnabled(false);
+					setTimeout(() => this.beginTerminalInterview(view), 500);
 				}
 			});
-
-			proc.on('close', async () => {
-				const newSessionId = extractSessionId(messages);
-				if (newSessionId) {
-					await this.sessionManager.setSessionId(file, newSessionId);
-				}
-
-				const error = extractError(messages);
-				if (error) {
-					// error is displayed to user via renderError below
-					renderer.finalize('', editor);
-					this.renderError(editor, error);
-				} else {
-					const { thinking: streamThinking, text: streamText } = extractThinkingAndText(messages);
-					const finalText = streamText || lastRenderedText || extractTextContent(messages);
-					let thinkingContent = streamThinking || undefined;
-					if (!thinkingContent && finalText) {
-						const separated = separateThinkingFromAnswer(finalText);
-						if (separated.thinking) {
-							thinkingContent = separated.thinking;
-							renderer.finalize(separated.answer, editor, thinkingContent);
-						} else {
-							renderer.finalize(finalText, editor);
-						}
-					} else {
-						renderer.finalize(finalText, editor, thinkingContent);
-					}
-				}
-				this.currentProcess = null;
-				this.processingRequest = false;
-			});
-
-			proc.on('error', (error: Error) => {
-				console.error('Claude Code error:', error);
-				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-				new Notice(`Claude error: ${errorMessage}`);
-				this.renderError(editor, errorMessage);
-				this.currentProcess = null;
-				this.processingRequest = false;
-			});
-
-			await proc.query(prompt, {
-				cwd: vaultPath,
-				sessionId: sessionResult.sessionId || undefined,
-				model: this.settings.model,
-				claudeCodePath: this.settings.claudeCodePath,
-				timeoutMs: 15 * 60 * 1000,
-			});
-
-		} catch (error) {
-			console.error('Claude request error:', error);
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			new Notice(`Claude error: ${errorMessage}`);
-			this.renderError(editor, errorMessage);
-			this.processingRequest = false;
+			return;
 		}
+
+		// Check for existing session to resume
+		const log = this.terminalSession.getLog();
+		if (log.length > 0) {
+			view.replayLog(log);
+			view.printSystem('');
+			view.printSystem('Session resumed.');
+			view.setInputEnabled(true);
+			view.setSubmitHandler((text: string) => this.sendTerminalMessage(text));
+			return;
+		}
+
+		// Fresh start
+		await this.beginTerminalInterview(view);
+	}
+
+	private async beginTerminalInterview(view: OnboardingTerminalView): Promise<void> {
+		await this.terminalSession.start();
+
+		// Boot sequence
+		const bootLines = [
+			'GENEROUS LEDGER v1.0',
+			'PERSONAL STEWARD TERMINAL',
+			'',
+			'> Initializing...',
+		];
+
+		for (const line of bootLines) {
+			view.printSystem(line);
+			await new Promise(resolve => setTimeout(resolve, 200));
+		}
+
+		await new Promise(resolve => setTimeout(resolve, 400));
+		view.printSystem('> Session established.');
+		view.printSystem('');
+
+		await this.terminalSession.appendLog({ role: 'system', text: 'GENEROUS LEDGER v1.0\nPERSONAL STEWARD TERMINAL\n\n> Initializing...\n> Session established.' });
+
+		view.setSubmitHandler((text: string) => this.sendTerminalMessage(text));
+
+		// Send initial onboarding prompt
+		const onboardingPrompt = [
+			'CONTEXT: You are a personal steward beginning service with a new principal.',
+			'You manage a real person\'s commitments, relationships, and schedule.',
+			'Read CLAUDE.md for your full operating instructions and docs/FRAMEWORK.md for your reasoning framework.',
+			'',
+			'Your responses appear in a terminal interface. Respond in plain text only — no markdown formatting, no headers, no bullet lists, no callout syntax.',
+			'',
+			'TASK: Begin the Onboarding Protocol defined in CLAUDE.md.',
+			'Say the opening statement, then ask your first question about identity and station.',
+			'',
+			'VOICE: Competent, direct, modern. You are not a butler — do not use deferential or archaic language.',
+			'You are not a therapist — do not validate, empathize, or build rapport.',
+			'You serve with quiet competence. Your words should feel like a capable person learning what they need to know to do their job well.',
+			'',
+			'PACING: Ask in natural conversational clusters — two or three related questions grouped naturally is fine.',
+			'Do not interrogate. Do not fire off a numbered list of questions.',
+			'If the user gives a sparse answer, probe once, then accept it and move on.',
+			'',
+			'SECTIONS: The protocol defines five sections. Treat them as guidelines, not walls.',
+			'If the user naturally moves into a later topic, follow the thread.',
+			'When you are ready to shift focus, announce it in your own voice — do not use section numbers or labels.',
+			'',
+			'FILE CREATION: As you gather information, create profile files per the protocol.',
+			'Do not announce that you are creating files. Do not ask for confirmation. Write them silently.',
+			'',
+			'When the interview is complete, offer one final open-ended question before closing.',
+		].join('\n');
+
+		await this.sendTerminalPrompt(onboardingPrompt);
+	}
+
+	private async sendTerminalMessage(text: string): Promise<void> {
+		if (!this.terminalView) return;
+		if (this.processingRequest) return;
+
+		// Handle terminal commands
+		const command = text.trim().toLowerCase();
+		if (command === '/restart') {
+			await this.handleRestart();
+			return;
+		}
+		if (command === '/redo') {
+			await this.handleRedo();
+			return;
+		}
+
+		this.terminalView.printUser(text);
+		this.terminalView.setInputEnabled(false);
+		await this.terminalSession.appendLog({ role: 'user', text });
+
+		const wrappedPrompt = [
+			'[STEWARD TERMINAL — ongoing onboarding interview]',
+			'Plain text only. No markdown. No bullet lists. No headers.',
+			'Competent modern voice — not deferential, not clinical, not warm.',
+			'Ask in natural clusters. Do not interrogate.',
+			'If the answer was sparse, you may probe once — then move on.',
+			'Follow interesting threads. Create profile files silently when ready.',
+			'',
+			text,
+		].join('\n');
+
+		await this.sendTerminalPrompt(wrappedPrompt);
+	}
+
+	private async handleRestart(): Promise<void> {
+		if (!this.terminalView) return;
+
+		this.terminalView.clearDisplay();
+		this.terminalView.showSpinner();
+		await this.terminalSession.clear();
+
+		// Brief pause so the spinner is visible
+		await new Promise(resolve => setTimeout(resolve, 600));
+
+		this.terminalView.clearDisplay();
+		await this.beginTerminalInterview(this.terminalView);
+	}
+
+	private async handleRedo(): Promise<void> {
+		if (!this.terminalView) return;
+
+		this.terminalView.printUser('');  // clears content and shows spinner
+		const previousQuestion = await this.terminalSession.removeLastExchange();
+
+		if (!previousQuestion) {
+			this.terminalView.printSystem('Nothing to redo.');
+			this.terminalView.setInputEnabled(true);
+			return;
+		}
+
+		// Brief pause so the spinner is visible
+		await new Promise(resolve => setTimeout(resolve, 600));
+
+		this.terminalView.showQuestion(previousQuestion.text);
+		this.terminalView.setInputEnabled(true);
+	}
+
+	private async sendTerminalPrompt(prompt: string): Promise<void> {
+		if (!this.terminalView) return;
+
+		this.processingRequest = true;
+		const vaultPath = (this.app.vault.adapter as any).basePath;
+		const sessionId = await this.terminalSession.getSessionId();
+
+		const proc = new ClaudeCodeProcess();
+		this.currentProcess = proc;
+
+		const messages: StreamMessage[] = [];
+		let lastStreamedLength = 0;
+
+		proc.on('message', (msg: StreamMessage) => {
+			messages.push(msg);
+
+			if (msg.type === 'stream_event' || msg.type === 'assistant') {
+				const fullText = extractStreamingText(messages) || extractTextContent(messages);
+				if (fullText.length > lastStreamedLength) {
+					const delta = fullText.slice(lastStreamedLength);
+					lastStreamedLength = fullText.length;
+					this.terminalView?.printSteward(delta);
+				}
+			}
+		});
+
+		proc.on('close', async () => {
+			const newSessionId = extractSessionId(messages);
+			if (newSessionId) {
+				await this.terminalSession.setSessionId(newSessionId);
+			}
+
+			const error = extractError(messages);
+			if (error) {
+				this.terminalView?.finalizeStewardTurn();
+				this.terminalView?.printSystem('ERROR: ' + error);
+				this.terminalView?.setInputEnabled(true);
+			} else {
+				const finalText = extractStreamingText(messages) || extractTextContent(messages);
+				this.terminalView?.finalizeStewardTurn();
+
+				if (finalText) {
+					await this.terminalSession.appendLog({ role: 'steward', text: finalText });
+				}
+
+				// Check if onboarding is complete
+				const profileNowExists = this.app.vault.getAbstractFileByPath('profile/index.md');
+				if (profileNowExists) {
+					this.terminalView?.printSystem('');
+					this.terminalView?.printSystem('ONBOARDING COMPLETE.');
+					this.terminalView?.printSystem('Profile written to profile/index.md.');
+					this.terminalView?.printSystem('This terminal may now be closed.');
+					this.terminalView?.setInputEnabled(false);
+					await this.terminalSession.clear();
+				}
+			}
+
+			this.currentProcess = null;
+			this.processingRequest = false;
+		});
+
+		proc.on('error', (error: Error) => {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+			this.terminalView?.finalizeStewardTurn();
+			this.terminalView?.printSystem('ERROR: ' + errorMessage);
+			this.terminalView?.setInputEnabled(true);
+			this.currentProcess = null;
+			this.processingRequest = false;
+		});
+
+		const options: ClaudeCodeOptions = {
+			cwd: vaultPath,
+			model: this.settings.model,
+			claudeCodePath: this.settings.claudeCodePath,
+		};
+		if (sessionId) {
+			options.sessionId = sessionId;
+		}
+
+		proc.query(prompt, options);
 	}
 
 	private getEditorView(editor: Editor): EditorView | null {

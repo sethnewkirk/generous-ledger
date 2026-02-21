@@ -35,10 +35,11 @@ export class ClaudeCodeProcess extends EventEmitter {
 			? options.claudeCodePath
 			: findClaudePath();
 
+		const { CLAUDECODE, ...cleanEnv } = process.env;
 		this.process = spawn(claudePath, args, {
 			cwd: options.cwd,
 			env: {
-				...process.env,
+				...cleanEnv,
 				PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin:${process.env.HOME}/.local/bin`
 			},
 			stdio: ['pipe', 'pipe', 'pipe']
@@ -123,7 +124,10 @@ export async function checkClaudeCodeVersion(claudeCodePath?: string): Promise<{
 			? claudeCodePath
 			: findClaudePath();
 
-		const versionOutput = execSync(`"${claudePath}" --version`, { encoding: 'utf-8' });
+		const { CLAUDECODE, ...cleanEnv } = process.env;
+		const execOpts = { encoding: 'utf-8' as const, env: cleanEnv };
+
+		const versionOutput = execSync(`"${claudePath}" --version`, execOpts);
 		const version = versionOutput.match(/\d+\.\d+\.\d+/)?.[0];
 
 		if (!version) {
@@ -131,7 +135,7 @@ export async function checkClaudeCodeVersion(claudeCodePath?: string): Promise<{
 		}
 
 		try {
-			execSync(`"${claudePath}" -p "ping" --max-turns 1`, { encoding: 'utf-8', timeout: 10000 });
+			execSync(`"${claudePath}" -p "ping" --max-turns 1`, { ...execOpts, timeout: 10000 });
 			return { installed: true, version, compatible: true, authenticated: true };
 		} catch {
 			return { installed: true, version, compatible: true, authenticated: false };
