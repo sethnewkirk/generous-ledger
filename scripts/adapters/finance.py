@@ -26,7 +26,7 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import URLError
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent))
 
 from lib.vault_writer import VaultWriter
 from lib.sync_state import SyncState

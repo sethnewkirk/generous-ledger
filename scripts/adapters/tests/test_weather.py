@@ -4,7 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent))
 from weather import simplify_condition, WMO_CODES, format_day
 
 
@@ -129,7 +129,7 @@ class TestFormatDayFinance(unittest.TestCase):
     """Test finance adapter formatting."""
 
     def test_weekly_summary_format(self):
-        sys.path.insert(0, str(Path(__file__).parent.parent))
+        sys.path.append(str(Path(__file__).parent.parent))
         from finance import format_weekly_summary
         from datetime import date
 

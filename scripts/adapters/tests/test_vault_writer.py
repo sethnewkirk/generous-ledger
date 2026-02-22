@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 # Add parent for lib imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent))
 from lib.vault_writer import VaultWriter
 
 

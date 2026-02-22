@@ -32,16 +32,28 @@ import argparse
 import base64
 import email.utils
 import re
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent))
 
 from lib.vault_writer import VaultWriter
 from lib.sync_state import SyncState
 from lib.logging_config import setup_logging
 from lib.credentials import load_credential, get_config, CREDENTIALS_DIR
+
+# Remove script directory from sys.path to prevent calendar.py from
+# shadowing the stdlib calendar module (breaks Google auth imports).
+# Python auto-inserts the script's directory as sys.path[0] when running
+# directly; this can be an absolute or relative path.
+_script_dir = str(Path(__file__).resolve().parent)
+sys.path = [p for p in sys.path
+            if os.path.realpath(p or '.') != os.path.realpath(_script_dir)]
+# Also purge any cached wrong-calendar from sys.modules
+if 'calendar' in sys.modules and 'adapters' in getattr(sys.modules['calendar'], '__file__', ''):
+    del sys.modules['calendar']
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 TOKEN_FILE = CREDENTIALS_DIR / "google-gmail-token.json"
@@ -443,7 +455,17 @@ def main():
 
     if args.setup:
         logger.info("Running first-time OAuth setup for Gmail...")
-        service = get_gmail_service()
+        try:
+            service = get_gmail_service()
+        except FileNotFoundError as e:
+            logger.error(str(e))
+            logger.error("To set up Gmail:")
+            logger.error("  1. Go to https://console.cloud.google.com/apis/credentials")
+            logger.error("  2. Enable the Gmail API")
+            logger.error("  3. Create OAuth 2.0 credentials (Desktop app)")
+            logger.error("  4. Download JSON and save to: %s/google-calendar.json", CREDENTIALS_DIR)
+            logger.error("  5. Run --setup again")
+            sys.exit(1)
         logger.info("Setup complete. Token saved to %s", TOKEN_FILE)
         return
 
