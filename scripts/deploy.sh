@@ -106,7 +106,7 @@ if $DEPLOY_BASES; then
 
     for base in "$REPO_DIR"/bases/*.base; do
         if [ -f "$base" ]; then
-            copy_file "$base" "$VAULT_PATH/$(basename "$base")"
+            copy_file "$base" "$VAULT_PATH/bases/$(basename "$base")"
         fi
     done
 

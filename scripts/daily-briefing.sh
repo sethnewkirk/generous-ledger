@@ -48,6 +48,10 @@ fi
 # Run Claude from the vault root so CLAUDE.md is auto-loaded
 cd "$VAULT_PATH"
 
+# Unset CLAUDECODE so claude -p doesn't refuse to run when invoked
+# from within an existing Claude Code session (e.g. manual testing).
+unset CLAUDECODE
+
 claude -p "Generate today's daily briefing per the Daily Briefing Protocol in CLAUDE.md." \
     --max-turns 10 \
     --permission-mode bypassPermissions \

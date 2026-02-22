@@ -48,6 +48,11 @@ fi
 # Run Claude from the vault root so CLAUDE.md is auto-loaded
 cd "$VAULT_PATH"
 
+# Unset CLAUDECODE so claude -p doesn't refuse to run when invoked
+# from within an existing Claude Code session (e.g. manual testing).
+# This is safe — the briefing is a separate session, not true nesting.
+unset CLAUDECODE
+
 claude -p "Generate tonight's evening review per the Evening Review Protocol in CLAUDE.md." \
     --max-turns 10 \
     --permission-mode bypassPermissions \
