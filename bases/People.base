@@ -1,0 +1,45 @@
+filters:
+  and:
+    - "file.inFolder(\"profile/people\")"
+
+properties:
+  name:
+    displayName: "Name"
+  role:
+    displayName: "Role"
+  circle:
+    displayName: "Circle"
+  birthday:
+    displayName: "Birthday"
+  anniversary:
+    displayName: "Anniversary"
+  contact_frequency:
+    displayName: "Contact"
+  status:
+    displayName: "Status"
+
+views:
+  - type: table
+    name: "All People"
+    order:
+      - name
+      - role
+      - circle
+      - birthday
+      - contact_frequency
+      - status
+  - type: table
+    name: "Family"
+    filters: "circle == \"family\" || circle == \"extended-family\""
+    order:
+      - name
+      - role
+      - birthday
+      - contact_frequency
+  - type: table
+    name: "Friends"
+    filters: "circle == \"friends\""
+    order:
+      - name
+      - contact_frequency
+      - status

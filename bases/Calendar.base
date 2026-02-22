@@ -1,0 +1,33 @@
+views:
+  - name: Upcoming
+    type: table
+    source: |
+      file.inFolder("data/calendar")
+    filters:
+      and:
+        - "file.inFolder(\"data/calendar\")"
+        - "date >= now() - \"1 day\""
+    order:
+      - property: date
+        direction: asc
+    limit: 7
+    properties:
+      - date
+      - event_count
+      - has_conflicts
+
+  - name: All Days
+    type: table
+    source: |
+      file.inFolder("data/calendar")
+    filters:
+      - "file.inFolder(\"data/calendar\")"
+    order:
+      - property: date
+        direction: desc
+    limit: 30
+    properties:
+      - date
+      - event_count
+      - has_conflicts
+      - last_synced

@@ -1,0 +1,34 @@
+views:
+  - name: Recent Entries
+    type: table
+    source: |
+      file.inFolder("diary")
+    filters:
+      and:
+        - "file.inFolder(\"diary\")"
+        - "type == \"diary\""
+    order:
+      - property: date
+        direction: desc
+    limit: 14
+    properties:
+      - date
+      - tags
+      - last_updated
+
+  - name: All Entries
+    type: table
+    source: |
+      file.inFolder("diary")
+    filters:
+      and:
+        - "file.inFolder(\"diary\")"
+        - "type == \"diary\""
+    order:
+      - property: date
+        direction: desc
+    limit: 30
+    properties:
+      - date
+      - tags
+      - last_updated

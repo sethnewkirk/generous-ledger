@@ -1,0 +1,102 @@
+views:
+  - name: Today's Weather
+    type: table
+    source: |
+      file.inFolder("data/weather")
+    filters:
+      and:
+        - "file.inFolder(\"data/weather\")"
+        - "date >= now() - \"1 day\""
+    order:
+      - property: date
+        direction: asc
+    limit: 3
+    properties:
+      - date
+      - condition
+      - high_f
+      - low_f
+      - precipitation_chance
+
+  - name: Calendar This Week
+    type: table
+    source: |
+      file.inFolder("data/calendar")
+    filters:
+      and:
+        - "file.inFolder(\"data/calendar\")"
+        - "date >= now() - \"1 day\""
+    order:
+      - property: date
+        direction: asc
+    limit: 7
+    properties:
+      - date
+      - event_count
+      - has_conflicts
+
+  - name: Active Commitments
+    type: table
+    source: |
+      file.inFolder("profile/commitments")
+    filters:
+      and:
+        - "file.inFolder(\"profile/commitments\")"
+        - "status == \"in-progress\" || status == \"not-started\""
+    order:
+      - property: priority
+        direction: asc
+    properties:
+      - title
+      - status
+      - priority
+      - deadline
+
+  - name: Budget Status
+    type: table
+    source: |
+      file.inFolder("data/finance")
+    filters:
+      - "file.inFolder(\"data/finance\")"
+    order:
+      - property: period_start
+        direction: desc
+    limit: 1
+    properties:
+      - week
+      - total_budgeted
+      - total_spent
+      - over_budget_categories
+
+  - name: Recent Diary
+    type: table
+    source: |
+      file.inFolder("diary")
+    filters:
+      and:
+        - "file.inFolder(\"diary\")"
+        - "type == \"diary\""
+        - "date >= now() - \"14 days\""
+    order:
+      - property: date
+        direction: desc
+    limit: 14
+    properties:
+      - date
+      - tags
+      - last_updated
+
+  - name: People
+    type: table
+    source: |
+      file.inFolder("profile/people")
+    filters:
+      - "file.inFolder(\"profile/people\")"
+    order:
+      - property: name
+        direction: asc
+    properties:
+      - name
+      - role
+      - birthday
+      - contact_frequency

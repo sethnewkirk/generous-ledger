@@ -1,0 +1,18 @@
+views:
+  - name: Budget Summaries
+    type: table
+    source: |
+      file.inFolder("data/finance")
+    filters:
+      - "file.inFolder(\"data/finance\")"
+    order:
+      - property: period_start
+        direction: desc
+    limit: 12
+    properties:
+      - week
+      - period_start
+      - period_end
+      - total_budgeted
+      - total_spent
+      - over_budget_categories

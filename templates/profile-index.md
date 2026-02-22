@@ -7,13 +7,13 @@ type: profile
 
 *One to two sentences. Who the user is, what defines their current station.*
 
-## Profile Files
+## Profile Structure
 
-| File | Contents |
+| Path | Contents |
 |------|----------|
 | [[profile/identity]] | Name, vocation, household, life stage, church tradition. |
-| [[profile/relationships]] | Key people, roles, dates, contact frequency, obligations. |
-| [[profile/commitments]] | Active goals, projects, promises with status and timeframe. |
+| `profile/people/` | One file per person. Roles, birthdays, contact frequency. |
+| `profile/commitments/` | One file per commitment. Status, priority, deadlines. |
 | [[profile/patterns]] | Steward observations. Ordering, vocational balance, trajectories. |
 | [[profile/current]] | This week. Active concerns, upcoming events, recent developments. |
 

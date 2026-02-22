@@ -164,10 +164,12 @@ Fully specified in `FRAMEWORK.md`. Summary of key elements:
 - Birthday/anniversary tracking and reminders
 - Accountability for stated commitments
 
-### Phase 3: Integration
-- External data sync adapters (Google Calendar, contacts)
-- Ambient file watching for journal updates
-- Richer pattern recognition across data sources
+### Phase 3: Integration ✓
+- External data sync adapter framework (implemented)
+- Weather, calendar, and finance adapters
+- Frontmatter-based data for Obsidian Bases queryability
+- Ambient file watching for journal updates (future)
+- Richer pattern recognition across data sources (future)
 
 ### Phase 4: Maturity
 - Multiple model support
@@ -216,13 +218,42 @@ The reasoning layer depends on:
 
 Any model or tool that can do these three things can serve as the engine. The FRAMEWORK.md is designed to work with any sufficiently capable language model, with specific anti-patterns to counteract typical training defaults.
 
-### Data Source Extensibility
-Adding a new external data source requires:
-1. A sync adapter that pulls data and writes markdown to the vault
-2. A profile file (or section) to store the normalized data
-3. An update to `index.md` to include the new dimension
+### Data Source Extensibility — Adapter Architecture
 
-The reasoning engine does not need to change.
+External data flows into the vault through **sync adapters** — standalone Python scripts that fetch from external APIs and write structured markdown to the vault. The reasoning engine never queries external APIs directly; it reads the vault.
+
+**Architecture:**
+```
+┌───────────────────┐     ┌──────────────────┐     ┌──────────────┐
+│  External APIs    │────▶│  Sync Adapters    │────▶│  Vault       │
+│  (Calendar, YNAB, │     │  (Python scripts) │     │  data/       │
+│   Health, etc.)   │     │  scripts/adapters/ │     │  *.md files  │
+└───────────────────┘     └──────────────────┘     └──────┬───────┘
+                                                          │ reads
+                                                   ┌──────▼───────┐
+                                                   │  Reasoning   │
+                                                   │  Engine      │
+                                                   └──────────────┘
+```
+
+**Shared framework (`scripts/adapters/lib/`):**
+- `vault_writer.py` — Writes markdown files with YAML frontmatter (atomic write via tmp+rename)
+- `credentials.py` — Loads API tokens from `~/.config/generous-ledger/credentials/` (outside vault, never synced)
+- `sync_state.py` — Tracks sync tokens and timestamps in `~/.config/generous-ledger/state/`
+- `logging_config.py` — Structured logging to `~/.local/log/generous-ledger/`
+
+**Design principles:**
+1. **Vault as integration bus.** The filesystem IS the integration layer. No database, no message queue.
+2. **Frontmatter-first.** All structured data in YAML frontmatter for Obsidian Bases queryability.
+3. **Idempotent writes.** Deterministic filenames, atomic writes. Safe to re-run any adapter.
+4. **Credential isolation.** API keys stored outside the vault (which may sync to cloud).
+5. **Language agnostic.** Adapters happen to be Python but could be any language that writes markdown.
+
+**Adding a new data source:**
+1. Create `scripts/adapters/<source>.py` using the shared framework
+2. Write files to `data/<source>/` with frontmatter matching a defined schema
+3. Register a schedule in `scripts/adapters/install-schedules.sh`
+4. Update CLAUDE.md Data Sources table and Daily Briefing Protocol
 
 ---
 

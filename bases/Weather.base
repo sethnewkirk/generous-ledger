@@ -1,0 +1,39 @@
+views:
+  - name: This Week
+    type: table
+    source: |
+      file.inFolder("data/weather")
+    filters:
+      and:
+        - "file.inFolder(\"data/weather\")"
+        - "date >= now() - \"1 day\""
+    order:
+      - property: date
+        direction: asc
+    limit: 7
+    properties:
+      - date
+      - condition
+      - high_f
+      - low_f
+      - precipitation_chance
+      - wind_max_mph
+      - sunrise
+      - sunset
+
+  - name: All Weather
+    type: table
+    source: |
+      file.inFolder("data/weather")
+    filters:
+      - "file.inFolder(\"data/weather\")"
+    order:
+      - property: date
+        direction: desc
+    limit: 30
+    properties:
+      - date
+      - condition
+      - high_f
+      - low_f
+      - precipitation_chance
