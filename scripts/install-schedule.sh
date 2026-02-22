@@ -1,47 +1,73 @@
 #!/bin/bash
-# install-schedule.sh — Install (or uninstall) the daily briefing LaunchAgent
+# install-schedule.sh — Install (or uninstall) the morning and evening routine LaunchAgents
 #
 # USAGE:
-#   ./scripts/install-schedule.sh              # Install and load the agent
-#   ./scripts/install-schedule.sh --uninstall  # Unload and remove the agent
+#   ./scripts/install-schedule.sh              # Install and load both agents
+#   ./scripts/install-schedule.sh --uninstall  # Unload and remove both agents
 #
-# This creates a macOS LaunchAgent that runs daily-briefing.sh at 6:00 AM.
+# This creates two macOS LaunchAgents:
+#   - morning-routine.sh at 6:00 AM (adapters + daily briefing)
+#   - evening-routine.sh at 9:00 PM (evening review + diary)
 #
 # PREREQUISITES:
-#   - daily-briefing.sh must exist alongside this script
-#   - CLAUDE.md, docs/FRAMEWORK.md, and templates/ must be deployed to the vault:
-#       npm run build && cp main.js manifest.json styles.css ~/Documents/Achaean/.obsidian/plugins/generous-ledger/
-#       cp CLAUDE.md ~/Documents/Achaean/CLAUDE.md
-#       cp docs/FRAMEWORK.md ~/Documents/Achaean/docs/FRAMEWORK.md
-#       mkdir -p ~/Documents/Achaean/templates && cp templates/profile-*.md ~/Documents/Achaean/templates/
+#   - morning-routine.sh, evening-routine.sh, and daily-briefing.sh must exist alongside this script
+#   - Deploy to vault first: ./scripts/deploy.sh
 
 set -e
 
-LABEL="com.generous-ledger.daily-briefing"
-PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
+MORNING_LABEL="com.generous-ledger.morning-routine"
+MORNING_PLIST="$HOME/Library/LaunchAgents/$MORNING_LABEL.plist"
+EVENING_LABEL="com.generous-ledger.evening-routine"
+EVENING_PLIST="$HOME/Library/LaunchAgents/$EVENING_LABEL.plist"
 VAULT_PATH="$HOME/Documents/Achaean"
 LOG_DIR="$HOME/.local/log/generous-ledger"
 
-# Resolve the absolute path to daily-briefing.sh (sibling of this script)
+# Resolve absolute paths to routine scripts (siblings of this script)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BRIEFING_SCRIPT="$SCRIPT_DIR/daily-briefing.sh"
+MORNING_SCRIPT="$SCRIPT_DIR/morning-routine.sh"
+EVENING_SCRIPT="$SCRIPT_DIR/evening-routine.sh"
 
 # --- Uninstall mode ---
 if [ "${1:-}" = "--uninstall" ]; then
-    echo "Uninstalling daily briefing schedule..."
+    echo "Uninstalling morning and evening routine schedules..."
 
-    if launchctl list "$LABEL" &>/dev/null; then
-        launchctl unload "$PLIST_PATH" 2>/dev/null || true
-        echo "  Unloaded LaunchAgent."
-    else
-        echo "  LaunchAgent was not loaded."
+    # Also clean up old daily-briefing label if it exists
+    OLD_LABEL="com.generous-ledger.daily-briefing"
+    OLD_PLIST="$HOME/Library/LaunchAgents/$OLD_LABEL.plist"
+    if launchctl list "$OLD_LABEL" &>/dev/null; then
+        launchctl unload "$OLD_PLIST" 2>/dev/null || true
+        rm -f "$OLD_PLIST"
+        echo "  Removed legacy daily-briefing agent."
     fi
 
-    if [ -f "$PLIST_PATH" ]; then
-        rm "$PLIST_PATH"
-        echo "  Removed $PLIST_PATH"
+    # Uninstall morning routine
+    if launchctl list "$MORNING_LABEL" &>/dev/null; then
+        launchctl unload "$MORNING_PLIST" 2>/dev/null || true
+        echo "  Unloaded morning LaunchAgent."
     else
-        echo "  Plist not found (already removed)."
+        echo "  Morning LaunchAgent was not loaded."
+    fi
+
+    if [ -f "$MORNING_PLIST" ]; then
+        rm "$MORNING_PLIST"
+        echo "  Removed $MORNING_PLIST"
+    else
+        echo "  Morning plist not found (already removed)."
+    fi
+
+    # Uninstall evening routine
+    if launchctl list "$EVENING_LABEL" &>/dev/null; then
+        launchctl unload "$EVENING_PLIST" 2>/dev/null || true
+        echo "  Unloaded evening LaunchAgent."
+    else
+        echo "  Evening LaunchAgent was not loaded."
+    fi
+
+    if [ -f "$EVENING_PLIST" ]; then
+        rm "$EVENING_PLIST"
+        echo "  Removed $EVENING_PLIST"
+    else
+        echo "  Evening plist not found (already removed)."
     fi
 
     echo "Done. Logs remain at $LOG_DIR if you want to clean them up."
@@ -49,36 +75,44 @@ if [ "${1:-}" = "--uninstall" ]; then
 fi
 
 # --- Install mode ---
-echo "Installing daily briefing schedule..."
+echo "Installing morning and evening routine schedules..."
 
-# Verify the briefing script exists
-if [ ! -f "$BRIEFING_SCRIPT" ]; then
-    echo "ERROR: daily-briefing.sh not found at $BRIEFING_SCRIPT"
+# Verify the routine scripts exist
+if [ ! -f "$MORNING_SCRIPT" ]; then
+    echo "ERROR: morning-routine.sh not found at $MORNING_SCRIPT"
+    exit 1
+fi
+if [ ! -f "$EVENING_SCRIPT" ]; then
+    echo "ERROR: evening-routine.sh not found at $EVENING_SCRIPT"
     exit 1
 fi
 
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"
 
-# Unload existing agent if present (idempotent reinstall)
-if launchctl list "$LABEL" &>/dev/null; then
-    launchctl unload "$PLIST_PATH" 2>/dev/null || true
-    echo "  Unloaded existing agent."
+# Unload existing agents if present (idempotent reinstall)
+if launchctl list "$MORNING_LABEL" &>/dev/null; then
+    launchctl unload "$MORNING_PLIST" 2>/dev/null || true
+    echo "  Unloaded existing morning agent."
+fi
+if launchctl list "$EVENING_LABEL" &>/dev/null; then
+    launchctl unload "$EVENING_PLIST" 2>/dev/null || true
+    echo "  Unloaded existing evening agent."
 fi
 
-# Write the plist
-cat > "$PLIST_PATH" <<EOF
+# Write the morning plist
+cat > "$MORNING_PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>$LABEL</string>
+    <string>$MORNING_LABEL</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>$BRIEFING_SCRIPT</string>
+        <string>$MORNING_SCRIPT</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -101,18 +135,55 @@ cat > "$PLIST_PATH" <<EOF
 </plist>
 EOF
 
-echo "  Wrote plist to $PLIST_PATH"
+echo "  Wrote morning plist to $MORNING_PLIST"
 
-# Load the agent
-launchctl load "$PLIST_PATH"
-echo "  Loaded LaunchAgent. Briefing will run daily at 6:00 AM."
+# Write the evening plist
+cat > "$EVENING_PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$EVENING_LABEL</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>$EVENING_SCRIPT</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>$VAULT_PATH</string>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>21</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>$LOG_DIR/launchd-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>$LOG_DIR/launchd-stderr.log</string>
+</dict>
+</plist>
+EOF
+
+echo "  Wrote evening plist to $EVENING_PLIST"
+
+# Load both agents
+launchctl load "$MORNING_PLIST"
+echo "  Loaded morning LaunchAgent. Morning routine will run daily at 6:00 AM."
+
+launchctl load "$EVENING_PLIST"
+echo "  Loaded evening LaunchAgent. Evening routine will run daily at 9:00 PM."
 
 echo ""
 echo "Done. Verify with:"
 echo "  launchctl list | grep generous-ledger"
 echo ""
-echo "REMINDER: Ensure CLAUDE.md and supporting files are deployed to the vault:"
-echo "  npm run build && cp main.js manifest.json styles.css ~/Documents/Achaean/.obsidian/plugins/generous-ledger/"
-echo "  cp CLAUDE.md ~/Documents/Achaean/CLAUDE.md"
-echo "  cp docs/FRAMEWORK.md ~/Documents/Achaean/docs/FRAMEWORK.md"
-echo "  mkdir -p ~/Documents/Achaean/templates && cp templates/profile-*.md ~/Documents/Achaean/templates/"
+echo "REMINDER: Deploy to vault first if you haven't already:"
+echo "  ./scripts/deploy.sh"

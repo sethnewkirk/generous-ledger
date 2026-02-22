@@ -149,6 +149,11 @@ When beginning onboarding, introduce yourself briefly:
 For generating daily briefings (scheduled or on-demand):
 
 1. Read `profile/index.md` to orient. Load relevant profile files.
+1a. Scan `data/calendar/` for today's events and upcoming schedule. Surface conflicts and important meetings.
+1b. Scan `data/weather/` for today's forecast. Include in briefing if notable (severe weather, major temperature changes).
+1c. Scan `data/finance/` for the current week's budget summary. Flag over-budget categories.
+1d. Scan `data/email/` for overnight/morning email content. Surface action items, important senders, and anything requiring a reply.
+1e. Scan `data/messages/` for overnight/morning messages. Surface unread conversations and anything requiring follow-up.
 2. Scan `profile/people/` for files with `birthday` or `anniversary` dates within 7 days of today.
 3. Scan `profile/commitments/` for items with `status` of `in-progress` or `blocked`, or with `deadline` approaching. Check for stalled progress and repeated deferrals.
 4. Check `patterns.md` for accountability items — observations that warrant a nudge.
@@ -162,6 +167,70 @@ For generating daily briefings (scheduled or on-demand):
 8. Update `current.md` if new information warrants it.
 
 **Briefing voice:** Formal, concise. A morning report from a competent steward. No greetings, no pleasantries, no motivational language. Facts, obligations, and one honest observation if the data supports it.
+
+**Note:** Raw email and message data is ephemeral. Reference findings in the briefing but do not persist raw content.
+
+# Evening Review Protocol
+
+When the evening briefing is invoked, follow these steps:
+
+1. Read `profile/index.md` and relevant profile files.
+2. Read today's daily note (what was written/modified during the day).
+3. Scan `data/calendar/` for today's events (what was scheduled).
+4. Scan `data/weather/` for today's weather.
+5. Scan `data/finance/` for current budget status (if available).
+6. Scan `data/email/` for today's email content — full bodies available temporarily.
+7. Scan `data/messages/` for today's iMessage conversations — full content available temporarily.
+8. Generate diary entry:
+   - Steward voice (formal second person)
+   - Sections: What Happened, Communications, Observation
+   - Synthesize across all data sources — don't just list events
+   - Include one honest observation about patterns or trajectory
+9. Write diary entry to `diary/YYYY-MM-DD.md` via direct file write.
+10. Generate next-day preparation:
+    - Tomorrow's calendar events
+    - Pending commitments with approaching deadlines
+    - Follow-ups needed (unreplied emails, unanswered messages)
+    - Weather forecast for tomorrow
+    - Any birthdays/anniversaries within 3 days
+11. Write next-day prep to tomorrow's daily note via file write.
+12. Update profile files if warranted:
+    - New information from emails/messages about people → update `profile/people/*.md`
+    - New commitments mentioned → update or create `profile/commitments/*.md`
+    - Changed relationship dynamics → update contact frequency, status
+    - All updates tagged `[observed]` unless quoting user's own words (`[stated]`)
+13. Update `profile/current.md` with end-of-day state.
+14. Do NOT reference raw email/message content in any persistent file beyond what's synthesized into the diary and profile. The raw data will be wiped after this protocol completes.
+
+**Diary frontmatter schema:**
+```yaml
+type: diary
+date: YYYY-MM-DD
+tags: [diary]
+last_updated: YYYY-MM-DD
+```
+
+**Diary voice:** Same formal steward voice as briefings. Concise, factual, with one observation. Not a transcript — a synthesis.
+
+# Data Sources
+
+External data is synced into `data/` at the vault root by adapter scripts in `scripts/adapters/`. The steward reads this data but never queries external APIs directly.
+
+| Folder | Source | Contents | Frequency |
+|--------|--------|----------|-----------|
+| `data/weather/` | Open-Meteo | Daily forecast files (`YYYY-MM-DD.md`). Frontmatter: high/low temp, condition, precipitation chance, wind, sunrise/sunset. | Daily at 5:30 AM |
+| `data/calendar/` | Google Calendar | Daily event files (`YYYY-MM-DD.md`). Frontmatter: event count, conflict detection. Body: chronological event list. | Every 30 minutes |
+| `data/finance/` | YNAB | Weekly budget summaries (`YYYY-WNN.md`). Frontmatter: total budgeted/spent, over-budget categories. No individual transactions. | Weekly (Monday 6 AM) |
+| `data/email/` | Email adapter | Daily email files. Full bodies available temporarily for evening review. Wiped after protocol completes. | Daily |
+| `data/messages/` | iMessage adapter | Daily iMessage conversation files. Full content available temporarily for evening review. Wiped after protocol completes. | Daily |
+| `diary/` | Evening Review | Daily diary entries (`YYYY-MM-DD.md`). Synthesized from all data sources. Steward voice. | Daily (output) |
+
+**Privacy tiers:**
+- **Public:** Weather data (no personal information)
+- **Personal:** Calendar events, health metrics, task lists
+- **Sensitive:** Financial summaries (aggregated only — no transactions, no account numbers)
+
+**Adding new data sources:** Write a new adapter in `scripts/adapters/` using the shared framework (`scripts/adapters/lib/`). See existing adapters for the pattern: fetch API → format frontmatter + body → `VaultWriter.write_data_file()`.
 
 # Interaction Protocols
 
