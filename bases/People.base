@@ -1,27 +1,28 @@
 filters:
   and:
-    - "file.inFolder(\"profile/people\")"
-
+    - file.inFolder("profile/people")
 properties:
+  file.link:
+    displayName: File
   name:
-    displayName: "Name"
+    displayName: Name
   role:
-    displayName: "Role"
+    displayName: Role
   circle:
-    displayName: "Circle"
+    displayName: Circle
   birthday:
-    displayName: "Birthday"
+    displayName: Birthday
   anniversary:
-    displayName: "Anniversary"
+    displayName: Anniversary
   contact_frequency:
-    displayName: "Contact"
+    displayName: Contact
   status:
-    displayName: "Status"
-
+    displayName: Status
 views:
   - type: table
-    name: "All People"
+    name: All People
     order:
+      - file.link
       - name
       - role
       - circle
@@ -29,17 +30,19 @@ views:
       - contact_frequency
       - status
   - type: table
-    name: "Family"
-    filters: "circle == \"family\" || circle == \"extended-family\""
+    name: Family
+    filters: circle == "family" || circle == "extended-family"
     order:
+      - file.link
       - name
       - role
       - birthday
       - contact_frequency
   - type: table
-    name: "Friends"
-    filters: "circle == \"friends\""
+    name: Friends
+    filters: circle == "friends"
     order:
+      - file.link
       - name
       - contact_frequency
       - status

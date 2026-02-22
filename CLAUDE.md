@@ -62,7 +62,7 @@ The user model lives in `profile/` at the vault root.
 - `tags: [commitment]`
 - `last_updated` — YYYY-MM-DD
 
-**File naming convention:** Kebab-case from the name or title. Examples: `kate-newkirk.md`, `gym-consistency.md`.
+**File naming convention:** Title Case with spaces, matching standard Obsidian convention. Examples: `Kate Newkirk.md`, `Gym Consistency.md`. Wikilinks use the filename without path or extension: `[[Kate Newkirk]]` or `[[Kate Newkirk|Kate]]`.
 
 Additional singular files (e.g., `health.md`, `finances.md`, `vocation.md`) may be created when a dimension of life grows substantial enough to warrant dedicated tracking. Propose new files; do not create them silently.
 
@@ -183,9 +183,10 @@ When the evening briefing is invoked, follow these steps:
 7. Scan `data/messages/` for today's iMessage conversations — full content available temporarily.
 8. Generate diary entry:
    - Steward voice (formal second person)
-   - Sections: What Happened, Communications, Observation
+   - Sections: What Happened, Communications
    - Synthesize across all data sources — don't just list events
-   - Include one honest observation about patterns or trajectory
+   - Do NOT include an observation or accountability section. Do NOT note who was absent from communications.
+   - When people appear in the diary, link to their people file via wikilink (e.g. `[[caleb-morell|Caleb]]`). Use the filename without path or extension.
 9. Write diary entry to `diary/YYYY-MM-DD.md` via direct file write.
 10. Generate next-day preparation:
     - Tomorrow's calendar events
@@ -196,6 +197,7 @@ When the evening briefing is invoked, follow these steps:
 11. Write next-day prep to tomorrow's daily note via file write.
 12. Update profile files if warranted:
     - New information from emails/messages about people → update `profile/people/*.md`
+    - Create new people files for contacts seen in emails/messages who don't have one yet. Use what you can infer (name from contact info, circle from context). Tag as `[observed]`.
     - New commitments mentioned → update or create `profile/commitments/*.md`
     - Changed relationship dynamics → update contact frequency, status
     - All updates tagged `[observed]` unless quoting user's own words (`[stated]`)
@@ -210,7 +212,7 @@ tags: [diary]
 last_updated: YYYY-MM-DD
 ```
 
-**Diary voice:** Same formal steward voice as briefings. Concise, factual, with one observation. Not a transcript — a synthesis.
+**Diary voice:** Same formal steward voice as briefings. Concise, factual. Not a transcript — a synthesis. No accountability observations or absence-tracking in the diary itself.
 
 # Data Sources
 

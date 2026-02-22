@@ -1,27 +1,28 @@
 filters:
   and:
-    - "file.inFolder(\"profile/commitments\")"
-
+    - file.inFolder("profile/commitments")
 properties:
+  file.link:
+    displayName: File
   title:
-    displayName: "Commitment"
+    displayName: Commitment
   category:
-    displayName: "Category"
+    displayName: Category
   status:
-    displayName: "Status"
+    displayName: Status
   priority:
-    displayName: "Priority"
+    displayName: Priority
   deadline:
-    displayName: "Deadline"
+    displayName: Deadline
   timeframe:
-    displayName: "Timeframe"
+    displayName: Timeframe
   stakeholder:
-    displayName: "Stakeholder"
-
+    displayName: Stakeholder
 views:
   - type: table
-    name: "All Commitments"
+    name: All Commitments
     order:
+      - file.link
       - title
       - category
       - status
@@ -29,17 +30,19 @@ views:
       - deadline
       - stakeholder
   - type: table
-    name: "Active"
-    filters: "status == \"in-progress\" || status == \"not-started\""
+    name: Active
+    filters: status == "in-progress" || status == "not-started"
     order:
+      - file.link
       - title
       - priority
       - deadline
       - category
   - type: table
-    name: "Blocked"
-    filters: "status == \"blocked\""
+    name: Blocked
+    filters: status == "blocked"
     order:
+      - file.link
       - title
       - priority
       - deadline

@@ -1,17 +1,14 @@
 views:
   - name: Today's Weather
     type: table
-    source: |
-      file.inFolder("data/weather")
-    filters:
-      and:
-        - "file.inFolder(\"data/weather\")"
-        - "date >= now() - \"1 day\""
+    source: file.inFolder("data/weather")
+    filters: date >= now() - "1 day"
     order:
       - property: date
         direction: asc
     limit: 3
     properties:
+      - file.link
       - date
       - condition
       - high_f
@@ -20,33 +17,27 @@ views:
 
   - name: Calendar This Week
     type: table
-    source: |
-      file.inFolder("data/calendar")
-    filters:
-      and:
-        - "file.inFolder(\"data/calendar\")"
-        - "date >= now() - \"1 day\""
+    source: file.inFolder("data/calendar")
+    filters: date >= now() - "1 day"
     order:
       - property: date
         direction: asc
     limit: 7
     properties:
+      - file.link
       - date
       - event_count
       - has_conflicts
 
   - name: Active Commitments
     type: table
-    source: |
-      file.inFolder("profile/commitments")
-    filters:
-      and:
-        - "file.inFolder(\"profile/commitments\")"
-        - "status == \"in-progress\" || status == \"not-started\""
+    source: file.inFolder("profile/commitments")
+    filters: status == "in-progress" || status == "not-started"
     order:
       - property: priority
         direction: asc
     properties:
+      - file.link
       - title
       - status
       - priority
@@ -54,15 +45,13 @@ views:
 
   - name: Budget Status
     type: table
-    source: |
-      file.inFolder("data/finance")
-    filters:
-      - "file.inFolder(\"data/finance\")"
+    source: file.inFolder("data/finance")
     order:
       - property: period_start
         direction: desc
     limit: 1
     properties:
+      - file.link
       - week
       - total_budgeted
       - total_spent
@@ -70,32 +59,25 @@ views:
 
   - name: Recent Diary
     type: table
-    source: |
-      file.inFolder("diary")
-    filters:
-      and:
-        - "file.inFolder(\"diary\")"
-        - "type == \"diary\""
-        - "date >= now() - \"14 days\""
+    source: file.inFolder("diary")
+    filters: type == "diary"
     order:
       - property: date
         direction: desc
     limit: 14
     properties:
+      - file.link
       - date
       - tags
-      - last_updated
 
   - name: People
     type: table
-    source: |
-      file.inFolder("profile/people")
-    filters:
-      - "file.inFolder(\"profile/people\")"
+    source: file.inFolder("profile/people")
     order:
       - property: name
         direction: asc
     properties:
+      - file.link
       - name
       - role
       - birthday
