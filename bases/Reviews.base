@@ -1,0 +1,35 @@
+filters:
+  and:
+    - file.inFolder("reviews/weekly") || file.inFolder("reviews/monthly")
+properties:
+  file.link:
+    displayName: File
+  type:
+    displayName: Type
+  date_start:
+    displayName: Start
+  date_end:
+    displayName: End
+  tags:
+    displayName: Tags
+views:
+  - type: table
+    name: Weekly Reviews
+    filters: type == "weekly-review"
+    order:
+      - property: date_start
+        direction: desc
+    limit: 12
+  - type: table
+    name: Monthly Reviews
+    filters: type == "monthly-review"
+    order:
+      - property: date_start
+        direction: desc
+    limit: 12
+  - type: table
+    name: All Reviews
+    order:
+      - property: date_start
+        direction: desc
+    limit: 30

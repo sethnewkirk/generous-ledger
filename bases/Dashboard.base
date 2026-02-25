@@ -70,6 +70,18 @@ views:
       - date
       - tags
 
+  - name: Recent Reviews
+    type: table
+    source: file.inFolder("reviews")
+    order:
+      - property: date_start
+        direction: desc
+    limit: 4
+    properties:
+      - file.link
+      - type
+      - date_start
+
   - name: People
     type: table
     source: file.inFolder("profile/people")

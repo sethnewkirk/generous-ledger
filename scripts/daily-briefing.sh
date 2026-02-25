@@ -45,6 +45,10 @@ if [ ! -f "$VAULT_PATH/CLAUDE.md" ]; then
     exit 1
 fi
 
+# Load model config (optional — uses CLI default if absent)
+source "$(dirname "$0")/lib/model-config.sh"
+MODEL=$(get_model "daily_briefing")
+
 # Run Claude from the vault root so CLAUDE.md is auto-loaded
 cd "$VAULT_PATH"
 
@@ -54,6 +58,7 @@ unset CLAUDECODE
 
 claude -p "Generate today's daily briefing per the Daily Briefing Protocol in CLAUDE.md." \
     --max-turns 10 \
+    ${MODEL:+--model "$MODEL"} \
     --permission-mode bypassPermissions \
     >> "$LOG_FILE" 2>&1
 

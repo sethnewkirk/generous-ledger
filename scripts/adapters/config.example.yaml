@@ -1,0 +1,48 @@
+# Generous Ledger — Data Adapter Configuration
+#
+# Copy this file to ~/.config/generous-ledger/config.yaml and customize.
+#
+# Credentials go in ~/.config/generous-ledger/credentials/ (NOT in the vault).
+
+vault_path: "~/Documents/Achaean"
+
+# Location for weather (default: Washington, DC)
+location:
+  latitude: 38.9072
+  longitude: -77.0369
+
+adapters:
+  weather:
+    enabled: true
+    # No credentials needed — Open-Meteo is free
+
+  calendar:
+    enabled: false
+    # Requires: ~/.config/generous-ledger/credentials/google-calendar.json
+    # See: https://developers.google.com/calendar/api/quickstart/python
+
+  health:
+    enabled: false
+    # Option A: Health Auto Export iOS app pushes to local endpoint
+    # Option B: Manual XML export parsed by adapter
+    # See plan for details
+
+  finance:
+    enabled: false
+    # Requires: ~/.config/generous-ledger/credentials/ynab.json
+    # Get your Personal Access Token at: https://app.ynab.com/settings/developer
+
+  tasks:
+    enabled: false
+    # Requires: ~/.config/generous-ledger/credentials/todoist.json
+    # Get your API token at: https://todoist.com/app/settings/integrations/developer
+
+# Model overrides per task type (optional).
+# When absent or empty, scripts use the Claude CLI default model.
+# Example: claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001
+models:
+  # daily_briefing: ""
+  # evening_review: ""
+  # weekly_review: ""
+  # monthly_review: ""
+  # ambient: ""
