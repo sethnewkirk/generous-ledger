@@ -1,4 +1,5 @@
 import { Editor } from 'obsidian';
+import { DEFAULT_ASSISTANT_HANDLE, normalizeAssistantHandle } from './assistant-handle';
 
 export interface InsertPosition {
 	line: number;
@@ -8,6 +9,13 @@ export interface InsertPosition {
 export class ResponseRenderer {
 	private insertPos: InsertPosition | null = null;
 	private scrollDOM: HTMLElement | null = null;
+	private readonly assistantHandle: string;
+	private readonly calloutType: string;
+
+	constructor(assistantHandle = DEFAULT_ASSISTANT_HANDLE, calloutType = 'steward') {
+		this.assistantHandle = normalizeAssistantHandle(assistantHandle);
+		this.calloutType = calloutType;
+	}
 
 	init(editor: Editor, scrollDOM?: HTMLElement | null): InsertPosition | null {
 		const cursor = editor.getCursor();
@@ -16,7 +24,7 @@ export class ResponseRenderer {
 		this.scrollDOM = scrollDOM ?? null;
 
 		editor.replaceRange(
-			'\n\n> [!claude] Claude\n> ',
+			`\n\n> [!${this.calloutType}] ${this.assistantHandle}\n> `,
 			{ line: cursor.line, ch: editor.getLine(cursor.line).length }
 		);
 

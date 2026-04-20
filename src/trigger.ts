@@ -1,5 +1,6 @@
 import { EditorState, StateField, StateEffect } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView } from '@codemirror/view';
+import { buildAssistantMentionPattern, findAssistantMention } from './assistant-handle';
 import { ClaudeIndicatorWidget, IndicatorState } from './visual-indicator';
 
 export const setIndicatorState = StateEffect.define<{
@@ -34,14 +35,14 @@ export const claudeIndicatorField = StateField.define<DecorationSet>({
 	provide: f => EditorView.decorations.from(f)
 });
 
-export function findClaudeMentionInView(view: EditorView): number | null {
+export function findAssistantMentionInView(view: EditorView, assistantHandle: string): number | null {
 	const doc = view.state.doc;
 	const cursor = view.state.selection.main.head;
 	const line = doc.lineAt(cursor);
 
-	const match = line.text.match(/@claude\b/i);
-	if (match && match.index !== undefined) {
-		return line.from + match.index + match[0].length;
+	const match = findAssistantMention(line.text, assistantHandle);
+	if (match) {
+		return line.from + match.index + match.matchText.length;
 	}
 
 	return null;
@@ -87,7 +88,7 @@ export function getParagraphAtCursor(state: EditorState, pos: number): Paragraph
 	return { from, to, text };
 }
 
-export function removeClaudeMentionFromText(text: string): string {
+export function removeAssistantMentionFromText(text: string, assistantHandle: string): string {
 	let cleanText = text;
 	if (cleanText.startsWith('---')) {
 		const endOfFrontmatter = cleanText.indexOf('---', 3);
@@ -96,9 +97,9 @@ export function removeClaudeMentionFromText(text: string): string {
 		}
 	}
 
-	return cleanText.replace(/@claude\b/gi, '').trim();
+	return cleanText.replace(buildAssistantMentionPattern(assistantHandle), '').trim();
 }
 
-export function hasClaudeMention(text: string): boolean {
-	return /@claude\b/i.test(text);
+export function hasAssistantMention(text: string, assistantHandle: string): boolean {
+	return buildAssistantMentionPattern(assistantHandle).test(text);
 }

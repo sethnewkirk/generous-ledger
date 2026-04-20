@@ -1,96 +1,98 @@
-# CLAUDE.md
+# Development Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This repository contains both the Obsidian plugin and the scheduled stewardship tooling.
 
-## Project Overview
-
-**Generous Ledger** is an Obsidian plugin that provides inline Claude AI assistance through `@Claude` mentions. Users can type questions followed by `@Claude`, press Enter, and receive AI-generated responses directly in their notes.
-
-## Development Commands
+## Core Commands
 
 ```bash
-# Install dependencies
 npm install
-
-# Development mode (watch and auto-rebuild)
 npm run dev
-
-# Production build (TypeScript check + bundle)
 npm run build
-
-# Version bump (updates manifest.json and versions.json)
+npm test
+npm run test:python
+npm run verify
 npm run version
 ```
 
-## Architecture
+## What `verify` Covers
 
-### Technology Stack
-- **TypeScript** - Type-safe development
-- **esbuild** - Fast bundling
-- **CodeMirror 6** - Editor extensions for visual indicators
-- **Anthropic SDK** - Claude API integration
-- **Obsidian API** - Plugin framework
+- TypeScript compile and bundle
+- Jest tests for plugin and provider helpers
+- Python adapter test suite
 
-### Directory Structure
+## Plugin Development
 
+The plugin build output is `main.js` in the repo root.
+
+Settings now include:
+
+- `provider`
+- `assistantHandle`
+- `codexPath`
+- `claudePath`
+- `codexModel`
+- `claudeModel`
+
+The plugin should never assume a default provider. If `provider` is unset, it must fail with a clear setup notice.
+
+## Runtime Documents
+
+Keep these aligned:
+
+- `docs/FRAMEWORK.md`
+- `docs/STEWARD_SPEC.md`
+- `AGENTS.md`
+- `CLAUDE.md`
+
+`FRAMEWORK.md` and `STEWARD_SPEC.md` are canonical. `AGENTS.md` and `CLAUDE.md` should stay thin.
+
+## Scheduled Scripts
+
+All briefing and routine scripts must support:
+
+- `--provider codex|claude`
+- `--vault PATH`
+- `GL_PROVIDER`
+- `GL_VAULT_PATH`
+
+Use `scripts/lib/` helpers instead of duplicating provider invocation logic.
+
+## Deployment
+
+Deploy to a vault with:
+
+```bash
+./scripts/deploy.sh
 ```
-src/
-├── main.ts                  # Plugin entry point, orchestrates all components
-├── settings.ts              # Settings tab and configuration interface
-├── api/
-│   └── claudeClient.ts      # Anthropic API wrapper
-├── editor/
-│   ├── claudeDetector.ts    # CodeMirror extension for @Claude detection
-│   ├── paragraphExtractor.ts # Utility to extract paragraph bounds
-│   └── visualIndicator.ts   # Widget for visual feedback (🤖/⏳/⚠️)
-└── renderer/
-    └── responseRenderer.ts  # Formats and inserts Claude responses
+
+Bootstrap a brand-new clean vault with:
+
+```bash
+./scripts/bootstrap-vault.sh --name Evander
 ```
 
-### High-Level Architecture
+That script is responsible for copying:
 
-1. **Trigger Detection**: CodeMirror 6 state field (`claudeIndicatorField`) monitors editor for `@claude` mentions and displays visual indicators
-2. **Enter Key Handling**: DOM event listener intercepts Enter key (but not Shift+Enter) to trigger API call
-3. **Paragraph Extraction**: Scans up/down from cursor to find paragraph boundaries (blank lines)
-4. **API Communication**: Sends paragraph content (minus @Claude trigger) to Anthropic API
-5. **Response Rendering**: Inserts response below paragraph in callout format with dark purple styling
+- plugin assets
+- `AGENTS.md`
+- `CLAUDE.md`
+- `docs/FRAMEWORK.md`
+- `docs/STEWARD_SPEC.md`
+- templates
+- bases
 
-### Key Design Decisions
+## Schedule Installation
 
-**CodeMirror Integration**: Uses StateField for decorations rather than ViewPlugin because we need to maintain indicator state across viewport changes.
+Install launch agents with:
 
-**Paragraph Detection**: Simple line-based scanning (blank lines as delimiters) rather than syntax tree parsing. Works reliably for Markdown without heavyweight dependencies.
+```bash
+./scripts/install-schedule.sh --provider codex
+```
 
-**API Client Separation**: `ClaudeClient` is decoupled from plugin logic, making it easy to swap models or add features like streaming responses.
+or:
 
-**Callout Format**: Responses use Obsidian's native callout syntax (`> [!claude]`) so they remain readable as Markdown even if plugin is disabled.
+```bash
+./scripts/install-schedule.sh --provider claude
+```
 
-## Testing in Obsidian
-
-To test during development:
-
-1. **Create symlink** from plugin directory to Obsidian vault:
-   ```bash
-   ln -s /path/to/generous-ledger /path/to/vault/.obsidian/plugins/generous-ledger
-   ```
-
-2. **Run dev mode**: `npm run dev` (auto-rebuilds on changes)
-
-3. **Reload plugin** in Obsidian: Cmd/Ctrl+R or toggle plugin off/on in settings
-
-## Configuration
-
-Settings are stored in `.obsidian/plugins/generous-ledger/data.json`:
-- `apiKey` - User's Anthropic API key (required)
-- `model` - Claude model identifier (default: `claude-sonnet-4-20250514`)
-- `maxTokens` - Response length limit (default: 4096)
-- `systemPrompt` - Custom behavior instructions (optional)
-
-## Future Enhancements
-
-The codebase is structured to support:
-- **Conversation threading**: Maintain context across multiple @Claude calls in same note
-- **Configurable context**: Send more than just the paragraph (e.g., entire note, selected text)
-- **Model switching**: Per-request model selection
-- **Streaming responses**: Real-time token-by-token rendering
-- **Mobile support**: Requires REST API architecture instead of direct SDK use
+Provider selection is mandatory when installing schedules.

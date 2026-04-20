@@ -1,4 +1,4 @@
-/* Visual indicator for @Claude mentions */
+/* Visual indicator for assistant mentions */
 .claude-indicator {
 	display: inline-block;
 	margin-left: 4px;
@@ -29,6 +29,7 @@
 }
 
 /* ── Steward Response Callout ── */
+.callout[data-callout="steward"],
 .callout[data-callout="claude"] {
 	--callout-color: 147, 112, 219;
 	--callout-icon: lucide-book-open;
@@ -37,10 +38,12 @@
 	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 
+.callout[data-callout="steward"] .callout-title,
 .callout[data-callout="claude"] .callout-title {
 	font-weight: 600;
 }
 
+.callout[data-callout="steward"] .callout-content,
 .callout[data-callout="claude"] .callout-content {
 	color: var(--text-normal);
 	font-family: 'Garamond', 'EB Garamond', Georgia, serif;
@@ -48,17 +51,20 @@
 }
 
 /* Background tint — light theme */
+.theme-light .callout[data-callout="steward"],
 .theme-light .callout[data-callout="claude"] {
 	background-color: rgba(147, 112, 219, 0.04);
 }
 
 /* Background tint — dark theme */
+.theme-dark .callout[data-callout="steward"],
 .theme-dark .callout[data-callout="claude"] {
 	background-color: rgba(147, 112, 219, 0.06);
 	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
 }
 
 /* Thinking text — muted italic inside callout */
+.callout[data-callout="steward"] .callout-content em,
 .callout[data-callout="claude"] .callout-content em {
 	color: var(--text-muted);
 	font-size: 0.92em;
@@ -66,6 +72,7 @@
 }
 
 /* Thinking/answer separator */
+.callout[data-callout="steward"] .callout-content hr,
 .callout[data-callout="claude"] .callout-content hr {
 	border: none;
 	border-top: 1px solid var(--background-modifier-border);
@@ -73,7 +80,7 @@
 	opacity: 0.5;
 }
 
-/* Error callout for Claude errors */
+/* Error callout for assistant errors */
 .callout[data-callout="error"] {
 	--callout-color: 220, 38, 38;
 }
@@ -261,4 +268,170 @@
 @keyframes gl-blink {
 	0%, 100% { opacity: 1; }
 	50% { opacity: 0; }
+}
+
+/* ── Steward Chat & Setup ─────────────────────────────── */
+
+.gl-chat,
+.gl-setup {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 16px;
+	background:
+		radial-gradient(circle at top right, rgba(208, 190, 140, 0.08), transparent 28%),
+		linear-gradient(180deg, rgba(35, 48, 67, 0.04), transparent 35%);
+}
+
+.gl-chat__header,
+.gl-setup__header {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.gl-chat__title-group {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.gl-chat__provider,
+.gl-chat__status,
+.gl-setup__status {
+	color: var(--text-muted);
+	font-size: 0.9rem;
+}
+
+.gl-chat__controls,
+.gl-setup__controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.gl-chat__thread-select {
+	min-width: 220px;
+}
+
+.gl-chat__context {
+	padding: 10px 12px;
+	border-radius: 10px;
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	font-size: 0.92rem;
+}
+
+.gl-chat__messages,
+.gl-setup__messages {
+	flex: 1;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding-right: 4px;
+}
+
+.gl-chat__message,
+.gl-setup__message {
+	max-width: min(78ch, 100%);
+	padding: 12px 14px;
+	border-radius: 14px;
+	background: var(--background-secondary);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.gl-chat__message--user,
+.gl-setup__message--user {
+	align-self: flex-end;
+	background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-primary));
+}
+
+.gl-chat__message--assistant,
+.gl-setup__message--assistant {
+	align-self: flex-start;
+	background: color-mix(in srgb, var(--color-base-70) 10%, var(--background-primary));
+}
+
+.gl-chat__message--system,
+.gl-setup__message--system {
+	align-self: center;
+	background: color-mix(in srgb, var(--color-red) 8%, var(--background-primary));
+}
+
+.gl-chat__message-role,
+.gl-setup__message-role {
+	font-size: 0.78rem;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	margin-bottom: 6px;
+}
+
+.gl-chat__message-body,
+.gl-setup__message-body {
+	white-space: pre-wrap;
+	line-height: 1.55;
+}
+
+.gl-chat__activity {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid var(--background-modifier-border);
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.gl-chat__activity-line {
+	font-size: 0.86rem;
+	color: var(--text-muted);
+}
+
+.gl-chat__activity-line--warning {
+	color: var(--color-red);
+}
+
+.gl-chat__actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.gl-chat__composer-wrap,
+.gl-setup__composer-wrap {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.gl-chat__composer-row {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.gl-chat__composer,
+.gl-setup__composer {
+	width: 100%;
+	min-height: 88px;
+	resize: vertical;
+	padding: 12px;
+	border-radius: 12px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font: inherit;
+	line-height: 1.5;
+}
+
+.gl-chat__empty,
+.gl-setup__empty {
+	color: var(--text-muted);
+	padding: 20px;
+	text-align: center;
 }

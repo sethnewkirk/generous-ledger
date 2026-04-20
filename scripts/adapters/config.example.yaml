@@ -21,6 +21,16 @@ adapters:
     # Requires: ~/.config/generous-ledger/credentials/google-calendar.json
     # See: https://developers.google.com/calendar/api/quickstart/python
 
+  contacts:
+    enabled: false
+    # macOS Contacts via osascript/JXA
+    # Grant Automation permission to your terminal if prompted.
+
+  call_log:
+    enabled: false
+    # Import .json or .csv exports from a phone bridge or automation
+    import_path: "~/Documents/Achaean/inbox/calls"
+
   health:
     enabled: false
     # Option A: Health Auto Export iOS app pushes to local endpoint
@@ -34,8 +44,12 @@ adapters:
 
   tasks:
     enabled: false
-    # Requires: ~/.config/generous-ledger/credentials/todoist.json
-    # Get your API token at: https://todoist.com/app/settings/integrations/developer
+    # Apple Reminders via osascript/JXA
+
+  voice_notes:
+    enabled: false
+    # Import .json, .md, or .txt transcripts from your phone app / capture flow
+    import_path: "~/Documents/Achaean/inbox/voice"
 
 # Model overrides per task type (optional).
 # When absent or empty, scripts use the Claude CLI default model.

@@ -145,6 +145,7 @@ def format_day(daily: dict, idx: int) -> tuple[dict, str]:
         "sunset": sunset,
         "wmo_code": code,
         "source": "open-meteo",
+        "forecast_generated_at": datetime.now().isoformat(),
         "tags": ["data", "weather"],
     }
 

@@ -4,6 +4,16 @@ type: profile
 ---
 <!-- This file is maintained by the steward, not the user. All entries tagged [observed]. -->
 
+<!-- GENERATED:STEWARD_MEMORY_PATTERNS START -->
+## Active Pattern Claims
+
+- No active pattern claims.
+
+## Pattern Evidence
+
+- No linked pattern evidence.
+<!-- GENERATED:STEWARD_MEMORY_PATTERNS END -->
+
 ## Ordering
 
 *What is being loved, and in what order? Where are legitimate goods displacing what belongs above them?*

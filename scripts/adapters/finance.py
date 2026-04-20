@@ -111,6 +111,7 @@ def format_weekly_summary(categories: list[dict], week_start: date) -> tuple[dic
         "total_budgeted": round(total_budgeted, 2),
         "total_spent": round(total_activity, 2),
         "over_budget_categories": over_budget[:5],  # cap at 5
+        "over_budget_count": len(over_budget),
         "source": "ynab",
         "last_synced": datetime.now().isoformat(),
         "tags": ["data", "finance"],

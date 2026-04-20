@@ -80,9 +80,12 @@ def get_config() -> dict:
             "adapters": {
                 "weather": {"enabled": True},
                 "calendar": {"enabled": False},
+                "contacts": {"enabled": False},
+                "call_log": {"enabled": False, "import_path": "~/Documents/Achaean/inbox/calls"},
                 "health": {"enabled": False},
                 "finance": {"enabled": False},
                 "tasks": {"enabled": False},
+                "voice_notes": {"enabled": False, "import_path": "~/Documents/Achaean/inbox/voice"},
             },
         }
     return yaml.safe_load(config_path.read_text(encoding="utf-8"))

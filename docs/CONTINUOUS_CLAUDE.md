@@ -1,3 +1,7 @@
+# Historical Archive: Continuous Claude v2 Setup
+
+This document reflects an older Claude-specific workflow. It is retained for reference only and is not the canonical operational documentation for the current dual-provider steward system.
+
 # Continuous Claude v2 Setup
 
 This project is configured for [Continuous Claude v2](https://github.com/parcadei/Continuous-Claude-v2), a context management system for Claude Code sessions.

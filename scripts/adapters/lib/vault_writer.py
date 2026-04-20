@@ -76,6 +76,43 @@ class VaultWriter:
 
         return file_path
 
+    def write_file(
+        self,
+        relative_path: str,
+        frontmatter: dict,
+        body: str,
+        overwrite: bool = True,
+    ) -> Path:
+        """Write a markdown file relative to the vault root."""
+        file_path = self.vault_path / relative_path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not overwrite and file_path.exists():
+            return file_path
+
+        yaml_str = yaml.dump(
+            frontmatter,
+            default_flow_style=False,
+            allow_unicode=True,
+            sort_keys=False,
+        ).rstrip()
+
+        content = f"---\n{yaml_str}\n---\n\n{body}\n"
+        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        tmp_path.write_text(content, encoding="utf-8")
+        tmp_path.rename(file_path)
+        return file_path
+
+    def clear_data_folder(self, folder: str, pattern: str = "*.md") -> int:
+        """Delete matching files under data/<folder>."""
+        data_dir = self.ensure_data_folder(folder)
+        removed = 0
+        for path in data_dir.glob(pattern):
+            if path.is_file():
+                path.unlink()
+                removed += 1
+        return removed
+
     def ensure_data_folder(self, folder: str) -> Path:
         """Create data/<folder> if it doesn't exist."""
         data_dir = self.vault_path / "data" / folder

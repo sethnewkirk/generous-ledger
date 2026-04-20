@@ -97,19 +97,28 @@ def fetch_events(service, days: int = 7) -> list[dict]:
     time_min = now.isoformat() + "Z"
     time_max = (now + timedelta(days=days)).isoformat() + "Z"
 
-    events_result = (
-        service.events()
-        .list(
-            calendarId="primary",
-            timeMin=time_min,
-            timeMax=time_max,
-            singleEvents=True,
-            orderBy="startTime",
-        )
-        .execute()
-    )
+    events: list[dict] = []
+    page_token = None
 
-    return events_result.get("items", [])
+    while True:
+        events_result = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
+                pageToken=page_token,
+            )
+            .execute()
+        )
+        events.extend(events_result.get("items", []))
+        page_token = events_result.get("nextPageToken")
+        if not page_token:
+            break
+
+    return events
 
 
 def group_events_by_date(events: list[dict]) -> dict[str, list[dict]]:
@@ -128,6 +137,8 @@ def format_event(event: dict) -> str:
     start = event["start"].get("dateTime", event["start"].get("date", ""))
     summary = event.get("summary", "(no title)")
     location = event.get("location", "")
+    status = event.get("status", "confirmed")
+    organizer = event.get("organizer", {}).get("email", "")
 
     # Extract time if it's a timed event (not all-day)
     if "T" in start:
@@ -138,6 +149,8 @@ def format_event(event: dict) -> str:
 
     if location:
         line += f" ({location})"
+    if status != "confirmed":
+        line += f" [{status}]"
 
     # Add attendees if present
     attendees = event.get("attendees", [])
@@ -149,6 +162,10 @@ def format_event(event: dict) -> str:
         ]
         if names and len(names) <= 5:
             line += f"\n  - With: {', '.join(names)}"
+    if organizer:
+        line += f"\n  - Organizer: {organizer}"
+    if event.get("id"):
+        line += f"\n  - Event ID: {event['id']}"
 
     return line
 
@@ -177,6 +194,7 @@ def format_day(date_str: str, events: list[dict]) -> tuple[dict, str]:
         "date": date_str,
         "event_count": len(events),
         "has_conflicts": has_conflicts,
+        "calendar_ids": ["primary"],
         "source": "google-calendar",
         "last_synced": datetime.now().isoformat(),
         "tags": ["data", "calendar"],

@@ -1,423 +1,164 @@
-# Architecture Documentation
+# Architecture
 
-## Overview
+Generous Ledger is an Obsidian-native steward system with a provider-neutral core. The vault is the data layer, the plugin is one trigger surface, and scheduled scripts are the other.
 
-**Generous Ledger** is an Obsidian plugin that integrates Claude AI directly into note-taking through inline mentions. The architecture is designed to be modular, extensible, and safe.
+## Canonical Layers
 
----
+1. `docs/FRAMEWORK.md`
+   Defines the moral and reasoning framework.
+2. `docs/STEWARD_SPEC.md`
+   Defines the operational rules, vault structure, and stewardship protocols.
+3. Canonical vault memory
+   `data/`, `memory/`, `profile/`, `diary/`, and `reviews/`.
+4. Runtime wrappers
+   `AGENTS.md` for Codex and `CLAUDE.md` for Claude.
 
-## Technology Stack
+## Runtime Architecture
 
-- **TypeScript** - Type-safe development
-- **esbuild** - Fast compilation and bundling
-- **CodeMirror 6** - Editor integration for visual feedback
-- **Anthropic SDK** - Direct Claude API communication
-- **Obsidian API** - Plugin framework integration
+### Plugin Layer
 
----
+The Obsidian plugin handles:
 
-## Project Structure
+- configurable provider selection
+- configurable assistant handle
+- note trigger detection
+- onboarding terminal UI
+- per-note session persistence
+- response rendering back into the current note
 
-```
-generous-ledger/
-├── src/
-│   ├── main.ts                      # Plugin entry point
-│   ├── settings.ts                  # Settings interface
-│   ├── core/                        # Shared infrastructure
-│   │   └── api/
-│   │       └── claudeClient.ts      # Anthropic API wrapper
-│   └── features/                    # Feature modules
-│       └── inline-assistant/        # @Claude inline feature
-│           ├── claudeDetector.ts    # Mention detection
-│           ├── paragraphExtractor.ts # Text extraction
-│           ├── visualIndicator.ts   # Visual feedback widget
-│           └── responseRenderer.ts  # Response formatting
-│
-├── styles/
-│   └── main.css                     # Plugin styling
-│
-├── docs/                            # Documentation
-│   ├── DEVELOPMENT.md              # Developer guide
-│   ├── ARCHITECTURE.md             # This file
-│   ├── SECURITY.md                 # Security audit & fixes
-│   ├── IMPLEMENTATION_PLAN.md      # Original plan
-│   └── CONTINUOUS_CLAUDE.md        # CC setup
-│
-├── thoughts/                        # Continuous Claude artifacts
-│   ├── ledgers/                    # Session state
-│   ├── shared/handoffs/            # Task post-mortems
-│   └── shared/plans/               # Implementation plans
-│
-└── .claude/cache/                  # CC database (gitignored)
-```
+The runtime never edits the active note directly. The plugin owns note rendering.
 
----
+### Provider Layer
 
-## High-Level Data Flow
+The plugin normalizes two providers behind one internal contract:
 
-### 1. Trigger Detection
+- `claude`
+- `codex`
 
-```
-User types "@Claude" in editor
-        ↓
-CodeMirror 6 StateField (claudeIndicatorField)
-        ↓
-findClaudeMentionInView() checks current line
-        ↓
-Visual indicator widget shown (🤖)
+Each provider implementation supplies:
+
+- availability and readiness checks
+- prompt execution
+- optional session resume
+- normalized final text extraction
+- normalized error reporting
+
+Claude retains streaming note rendering. Codex support is conservative for now and inserts the final response when execution completes.
+
+### Session Layer
+
+Per-note session state lives in frontmatter:
+
+```yaml
+steward_sessions:
+  claude: "<session-id>"
+  codex: "<session-id>"
 ```
 
-### 2. Request Initiation
+Legacy `claude_session_id` is migrated opportunistically when the note is next written successfully.
 
-```
-User presses Enter (not Shift+Enter)
-        ↓
-DOM keydown listener intercepts
-        ↓
-handleEnterKey() validates context
-        ↓
-getParagraphAtCursor() extracts text
-        ↓
-hasClaudeMention() confirms @Claude present
-```
+### Scheduled Routine Layer
 
-### 3. API Communication
+Scripts under `scripts/` support daily, evening, weekly, monthly, and ambient stewardship flows. They share:
 
-```
-removeClaudeMentionFromText() cleans input
-        ↓
-Visual indicator changes to processing (⏳)
-        ↓
-ClaudeClient.sendMessage() calls Anthropic API
-        ↓
-Response validated and returned
-```
+- `--provider codex|claude`
+- `--vault PATH`
+- `GL_PROVIDER`
+- `GL_VAULT_PATH`
 
-### 4. Response Rendering
+All briefing scripts delegate provider execution through one shared runner under `scripts/lib/`.
 
-```
-Verify still in same document
-        ↓
-Clear visual indicator
-        ↓
-renderClaudeResponse() formats as callout
-        ↓
-Insert below paragraph in Markdown
-```
+### Memory Compiler Layer
 
----
+The vault memory system is a compiler, not a passive store.
 
-## Core Components
+- source signals arrive in `data/` and ordinary markdown notes
+- adapters may be direct API/database connectors or import bridges for future mobile and voice workflows
+- promoted signals are normalized into `memory/events/`
+- durable conclusions are written to `memory/claims/`
+- `profile/` is projected from claims plus recent events
+- `memory/index.json` is a rebuildable retrieval index, never the source of truth
+- `memory/health-report.md` and `memory/health-report.json` surface unresolved subjects, unlinked contacts, orphaned memory, and stale/conflicting claims
 
-### Main Plugin (`main.ts`)
+Obsidian wikilinks are part of the data model. Memory objects, profile pages, and operational notes link to each other so retrieval can traverse the local markdown graph before it falls back to lexical search.
 
-**Responsibilities:**
-- Plugin lifecycle management (load/unload)
-- Settings persistence
-- CodeMirror extension registration
-- Event handler coordination
-- Request orchestration
+The current signal surface includes:
 
-**Key Methods:**
-- `onload()` - Initialize plugin, register extensions
-- `handleEnterKey()` - Process @Claude triggers
-- `updateVisualIndicator()` - Real-time indicator updates
+- Google Calendar, Gmail, and iMessage snapshots
+- Apple Contacts and Apple Reminders snapshots
+- imported voice-note transcripts and call-log entries
+- finance and weather summaries
+- ordinary vault markdown and daily notes
 
----
+## Data Flow
 
-### Settings (`settings.ts`)
+### Inline Note Flow
 
-**Responsibilities:**
-- User configuration interface
-- API key management
-- Model selection
-- Token limits and system prompts
+1. User writes a paragraph containing `@Steward`.
+2. Trigger detection finds the configured handle or a legacy alias.
+3. The plugin resolves the configured provider.
+4. The provider executes from the vault root.
+5. The plugin renders a `steward` callout into the note.
+6. The note's provider-specific session id is updated in frontmatter.
 
-**Configuration:**
-- `apiKey` - User's Anthropic API key
-- `model` - Claude model selection (Sonnet/Opus)
-- `maxTokens` - Response length limit
-- `systemPrompt` - Behavior customization
+### Onboarding Flow
 
----
+1. The plugin checks for `profile/index.md`.
+2. If no profile exists, the onboarding terminal opens.
+3. The configured provider runs the onboarding protocol from the shared steward spec.
+4. The provider creates profile files in the vault.
+5. When `profile/index.md` appears, the terminal session is cleared and closed.
 
-### Claude Client (`core/api/claudeClient.ts`)
+### Scheduled Flow
 
-**Responsibilities:**
-- Anthropic API abstraction
-- Request/response handling
-- Error management
-- Configuration updates
+1. Adapters populate `data/`.
+2. The memory compiler promotes recent signals into `memory/events/` and `memory/claims/`, then refreshes `profile/` projections and the derived index.
+3. A briefing or review script resolves provider and vault path.
+4. The shared runner executes the provider against the deployed wrapper plus shared docs.
+5. The provider writes its briefing or review outputs into the vault.
+6. Ephemeral email and message files are deleted only after success.
 
-**Design Decision:** Decoupled from plugin logic for:
-- Easy model swapping
-- Future streaming support
-- Testability
-- Reusability
+## Repository Structure
 
----
+```text
+src/
+  main.ts
+  settings.ts
+  trigger.ts
+  renderer.ts
+  session-manager.ts
+  session-state.ts
+  claude-process.ts
+  codex-process.ts
+  terminal-session.ts
+  terminal-view.ts
 
-### Inline Assistant Feature
+docs/
+  FRAMEWORK.md
+  STEWARD_SPEC.md
+  DESIGN.md
+  DEVELOPMENT.md
+  ARCHITECTURE.md
 
-#### Claude Detector (`claudeDetector.ts`)
-
-**Responsibilities:**
-- CodeMirror 6 integration
-- @Claude mention detection
-- Visual indicator state management
-
-**Key Exports:**
-- `claudeIndicatorField` - StateField for decorations
-- `setIndicatorState` - State update effect
-- `findClaudeMentionInView()` - Mention position finder
-
-**Design Decision:** Uses StateField over ViewPlugin because we need to maintain indicator state across viewport changes.
-
----
-
-#### Paragraph Extractor (`paragraphExtractor.ts`)
-
-**Responsibilities:**
-- Text boundary detection
-- Content extraction
-- Mention removal
-
-**Algorithm:**
-- Scan backward from cursor until blank line or document start
-- Scan forward until blank line or document end
-- Extract bounded text
-- Remove @Claude trigger
-
-**Design Decision:** Simple line-based scanning (blank line delimiters) rather than syntax tree parsing. Reliable for Markdown without heavyweight dependencies.
-
----
-
-#### Visual Indicator (`visualIndicator.ts`)
-
-**Responsibilities:**
-- CodeMirror 6 widget creation
-- State visualization (🤖/⏳/⚠️)
-- Accessibility labels
-
-**States:**
-- `ready` - @Claude detected, ready to send
-- `processing` - API call in progress
-- `error` - Request failed
-
----
-
-#### Response Renderer (`responseRenderer.ts`)
-
-**Responsibilities:**
-- Format Claude responses as Obsidian callouts
-- Handle empty lines properly
-- Position insertion correctly
-- Error rendering
-
-**Output Format:**
-```markdown
-> [!claude] Claude's Response
-> Response text here
-> With proper formatting
+scripts/
+  compile-memory.sh
+  check-memory.sh
+  retrieve-memory.sh
+  deploy.sh
+  install-schedule.sh
+  morning-routine.sh
+  evening-routine.sh
+  weekly-routine.sh
+  monthly-routine.sh
+  ambient-watcher.sh
+  *-briefing.sh
+  lib/
+  steward_memory/
 ```
 
-**Design Decision:** Uses Obsidian's native callout syntax so responses remain readable as Markdown even if plugin is disabled.
+## Design Constraints
 
----
-
-## Key Design Decisions
-
-### 1. CodeMirror 6 Integration
-
-**Choice:** StateField for decorations
-**Rationale:** Need to maintain indicator state across viewport changes. ViewPlugin would lose state when content scrolls out of view.
-
-### 2. Paragraph Detection
-
-**Choice:** Line-based scanning with blank line delimiters
-**Rationale:**
-- Simple and reliable for Markdown
-- No heavyweight syntax parsing needed
-- Fast performance
-- Works with all Markdown variants
-
-### 3. API Client Architecture
-
-**Choice:** Separate ClaudeClient class
-**Rationale:**
-- Testable in isolation
-- Easy to swap models
-- Supports future streaming
-- Reusable for other features
-
-### 4. Response Format
-
-**Choice:** Obsidian callout blocks
-**Rationale:**
-- Native Obsidian syntax
-- Readable without plugin
-- Collapsible
-- Themeable
-- Consistent with Obsidian UX
-
-### 5. Modular Feature Organization
-
-**Choice:** Features in separate directories
-**Rationale:**
-- Clear boundaries for future features
-- Easy to add new capabilities
-- Shared core (API client) separate from features
-- Scalable architecture
-
----
-
-## Future Extensibility
-
-The architecture supports these planned enhancements:
-
-### Conversation Threading
-**Location:** `src/features/conversation/`
-**Integration:** Extend ClaudeClient to maintain message history
-
-### Extended Context
-**Location:** `src/core/context/`
-**Integration:** New context extractors (whole note, selection, vault search)
-
-### Model Switching
-**Location:** Settings UI + claudeDetector
-**Integration:** Per-request model selection via syntax (`@Claude:opus`)
-
-### Streaming Responses
-**Location:** ClaudeClient + responseRenderer
-**Integration:** Token-by-token rendering with progress indication
-
-### Mobile Support
-**Location:** `src/core/api-proxy/`
-**Integration:** REST API proxy since Anthropic SDK requires Node.js
-
----
-
-## Security Architecture
-
-### API Key Handling
-- Stored in Obsidian's data.json (local only)
-- Password field in settings UI
-- Never logged or transmitted except to Anthropic
-
-### Request Validation
-- Content validation before API call
-- Document context verification after async operation
-- Concurrent request prevention
-- Bounds checking on all array access
-
-### Error Handling
-- All API errors caught and handled
-- User-friendly error messages
-- Errors rendered in document for transparency
-- Console logging for debugging
-
----
-
-## Performance Considerations
-
-### Visual Indicator
-- Lightweight widget (3 emoji states)
-- Only processes visible viewport
-- Minimal re-renders
-
-### Paragraph Extraction
-- O(n) where n = paragraph length
-- Early termination on blank lines
-- No regex overhead
-
-### API Calls
-- Async/await non-blocking
-- Single request at a time
-- User can continue editing during request
-
-### Bundle Size
-- Main bundle: ~121KB
-- Tree-shaking enabled
-- Only required Anthropic SDK features
-
----
-
-## Testing Strategy
-
-### Critical Paths
-1. @Claude detection and visual feedback
-2. Enter key handling (with Shift+Enter bypass)
-3. Paragraph boundary detection
-4. API communication
-5. Response rendering
-6. Error handling
-
-### Edge Cases
-- Last line of document
-- Empty content
-- Document switch during request
-- Network failures
-- Invalid API responses
-- Very long paragraphs
-
----
-
-## Development Workflow
-
-```bash
-# Development cycle
-npm run dev          # Watch mode, auto-rebuild
-# Test in Obsidian (Cmd/Ctrl+R to reload)
-
-# Production build
-npm run build        # TypeScript check + bundle
-
-# Version bump
-npm run version      # Update manifest + versions.json
-```
-
----
-
-## Dependencies
-
-### Runtime
-- `obsidian` - Plugin API
-- `@anthropic-ai/sdk` - Claude API client
-- `@codemirror/state` - Editor state
-- `@codemirror/view` - Editor view/decorations
-
-### Development
-- `typescript` - Type checking
-- `esbuild` - Fast bundling
-- `@types/node` - Node.js types
-
----
-
-## Maintenance Notes
-
-### Adding New Features
-1. Create feature directory in `src/features/`
-2. Export feature interface from feature's index
-3. Register in `main.ts`
-4. Update settings if needed
-5. Add tests
-6. Document in this file
-
-### Modifying Core API
-1. Update `ClaudeClient` interface
-2. Maintain backward compatibility
-3. Update all feature consumers
-4. Test error handling
-5. Update type definitions
-
-### Updating Dependencies
-1. Test with `npm run build`
-2. Verify Obsidian API compatibility
-3. Check bundle size impact
-4. Update type definitions if needed
-
----
-
-**Last Updated:** 2026-01-06
-**Plugin Version:** 1.0.0
-**Architecture Version:** 1.0
+- The vault is the system of record.
+- The assistant identity is neutral `Steward`; providers are implementation choices.
+- The live vault may not be a git repository, so Codex runs must tolerate non-repo execution.
+- Provider drift should be minimized by keeping operational rules in shared docs and runtime-specific behavior in thin wrappers.

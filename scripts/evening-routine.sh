@@ -1,21 +1,5 @@
 #!/bin/bash
-# evening-routine.sh — Run data adapters, generate evening review, then clean up
-#
-# USAGE:
-#   ./scripts/evening-routine.sh
-#
-# This is the recommended way to generate evening reviews. It ensures
-# adapters run BEFORE the review, so the steward has fresh data.
-# After the review is written, ephemeral data files are cleaned up.
-#
-# Sequence:
-#   1. Gmail adapter (if credentials exist)
-#   2. iMessage adapter (if chat.db is readable)
-#   3. Evening briefing (Claude Code)
-#   4. Cleanup ephemeral data (email + messages)
-#
-# LOGS:
-#   ~/.local/log/generous-ledger/evening-YYYY-MM-DD.log
+# evening-routine.sh — Run adapters, then generate the evening review
 
 set -e
 
@@ -24,7 +8,17 @@ ADAPTER_DIR="$SCRIPT_DIR/adapters"
 LOG_DIR="$HOME/.local/log/generous-ledger"
 LOG_FILE="$LOG_DIR/evening-$(date +%Y-%m-%d).log"
 CRED_DIR="$HOME/.config/generous-ledger/credentials"
-VAULT_PATH="$HOME/Documents/Achaean"
+
+source "$SCRIPT_DIR/lib/provider-runner.sh"
+
+gl_parse_common_args "$@" || exit 1
+if [ ${#REMAINING_ARGS[@]} -ne 0 ]; then
+    echo "USAGE: ./scripts/evening-routine.sh [--provider codex|claude] [--vault PATH]" >&2
+    exit 1
+fi
+
+PROVIDER="$(gl_resolve_provider "$COMMON_PROVIDER")" || exit 1
+VAULT_PATH="$(gl_resolve_vault_path "$COMMON_VAULT")"
 
 mkdir -p "$LOG_DIR"
 
@@ -35,7 +29,7 @@ log() {
 run_adapter() {
     local name="$1"
     local script="$ADAPTER_DIR/$name.py"
-    local cred_file="$2"  # optional — skip check if empty
+    local cred_file="$2"
 
     if [ ! -f "$script" ]; then
         log "SKIP $name — script not found"
@@ -48,19 +42,20 @@ run_adapter() {
     fi
 
     log "RUN  $name"
-    if python3 "$script" >> "$LOG_FILE" 2>&1; then
+    if python3 "$script" --vault "$VAULT_PATH" >> "$LOG_FILE" 2>&1; then
         log "OK   $name"
     else
         log "FAIL $name (exit $?)"
     fi
 }
 
-log "=== Evening Routine — $(date) ==="
+log "=== Evening Routine ($(gl_provider_display_name "$PROVIDER")) — $(date) ==="
 
-# 1. Gmail (requires Google OAuth token)
 run_adapter "gmail" "$CRED_DIR/google-gmail-token.json"
+run_adapter "tasks" ""
+run_adapter "voice_notes" ""
+run_adapter "call_log" ""
 
-# 2. iMessage (requires readable chat.db)
 CHAT_DB="$HOME/Library/Messages/chat.db"
 if [ -r "$CHAT_DB" ]; then
     run_adapter "imessage" ""
@@ -68,18 +63,18 @@ else
     log "SKIP imessage — $CHAT_DB not readable"
 fi
 
-# 3. Evening briefing
 log "RUN  briefing"
-if bash "$SCRIPT_DIR/evening-briefing.sh" >> "$LOG_FILE" 2>&1; then
+if bash "$SCRIPT_DIR/evening-briefing.sh" --provider "$PROVIDER" --vault "$VAULT_PATH" >> "$LOG_FILE" 2>&1; then
     log "OK   briefing"
+    log "RUN  cleanup"
+    rm -f "$VAULT_PATH/data/email/"*.md
+    rm -f "$VAULT_PATH/data/messages/"*.md
+    log "OK   cleanup"
+    log "=== Evening Routine Complete ==="
+    exit 0
 else
-    log "FAIL briefing (exit $?)"
+    EXIT_CODE=$?
+    log "FAIL briefing (exit $EXIT_CODE)"
+    log "SKIP cleanup — preserved email and message files for retry/debugging"
+    exit $EXIT_CODE
 fi
-
-# 4. Cleanup ephemeral data files
-log "RUN  cleanup"
-rm -f "$VAULT_PATH/data/email/"*.md
-rm -f "$VAULT_PATH/data/messages/"*.md
-log "OK   cleanup"
-
-log "=== Evening Routine Complete ==="

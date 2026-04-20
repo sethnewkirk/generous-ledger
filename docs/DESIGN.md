@@ -43,7 +43,7 @@ Inspired by Google's "Selfish Ledger" concept: a system with enough understandin
                │ reads/writes markdown
 ┌──────────────▼──────────────────────────────────┐
 │  Reasoning Engine (model-agnostic)               │
-│  - Currently: Claude Code CLI                    │
+│  - Current providers: Codex and Claude           │
 │  - Future: any model that can read/write files   │
 │  - Loads FRAMEWORK.md + profile index            │
 │  - Pulls relevant profile files per request      │
@@ -53,7 +53,7 @@ Inspired by Google's "Selfish Ledger" concept: a system with enough understandin
                │ triggered by
 ┌──────────────▼──────────────────────────────────┐
 │  Trigger Layer                                   │
-│  1. On-demand: Obsidian plugin (@Claude)         │
+│  1. On-demand: Obsidian plugin (@Steward)        │
 │  2. Scheduled: cron/launchd (daily briefing)     │
 │  3. Ambient: file watcher (future)               │
 └─────────────────────────────────────────────────┘
@@ -66,12 +66,12 @@ Inspired by Google's "Selfish Ledger" concept: a system with enough understandin
 - The user can always inspect everything
 - No hidden databases or API-specific state
 
-**Model-agnostic reasoning layer.** The interface between the engine and the vault is: "read markdown files, reason according to FRAMEWORK.md, write markdown files." Claude Code is the current engine but the architecture does not depend on it. Future options: other Claude models via API, local models, multi-model setups.
+**Model-agnostic reasoning layer.** The interface between the engine and the vault is: "read markdown files, reason according to FRAMEWORK.md, write markdown files." Codex and Claude are the current providers, but the architecture does not depend on either of them.
 
 **External data via sync adapters.** External sources (calendar, email, contacts) are pulled into the vault as markdown by dedicated sync adapters. The reasoning engine never queries external APIs directly — it reads the vault. Adding a new data source means writing a new adapter, not changing the core logic.
 
 **Three interaction modes:**
-1. **On-demand** — User types @Claude in a note, assistant responds. The existing plugin pattern, simplified.
+1. **On-demand** — User types @Steward in a note, assistant responds. Legacy `@Claude` and `@Codex` aliases remain available for compatibility.
 2. **Scheduled** — Daily/weekly job runs the engine against the vault. Produces daily briefings, checks dates, reviews patterns, updates profile. This is where proactive guidance lives.
 3. **Ambient** (future) — File watchers notice journal entries or note changes, triggering profile updates or observations.
 
@@ -153,7 +153,7 @@ Fully specified in `FRAMEWORK.md`. Summary of key elements:
 
 ### Phase 1: Foundation
 - Onboarding interview that populates profile files
-- On-demand interaction via Obsidian plugin (@Claude)
+- On-demand interaction via Obsidian plugin (@Steward)
 - FRAMEWORK.md loaded into every interaction
 - Profile index with selective file loading
 - Basic daily note generation
@@ -207,7 +207,7 @@ Fully specified in `FRAMEWORK.md`. Summary of key elements:
 
 ### Current Stack
 - TypeScript / esbuild / Obsidian plugin API
-- Claude Code CLI as reasoning engine
+- Codex CLI and Claude CLI as reasoning providers
 - Markdown files as data layer
 
 ### Model Agnosticism
@@ -259,7 +259,7 @@ External data flows into the vault through **sync adapters** — standalone Pyth
 
 ## Relation to Existing Codebase
 
-The current codebase (Obsidian plugin with Claude Code CLI integration, streaming UX, thinking collapse) provides the foundation for the on-demand interaction mode. Key changes needed:
+The current codebase (Obsidian plugin with Codex and Claude CLI integration, streaming UX for Claude, final-response mode for Codex, thinking collapse) provides the foundation for the on-demand interaction mode. Key changes needed:
 
 - **Simplify** — Remove format polymorphism (canvas/base renderers), unused SDK client, skills installer
 - **Add** — Profile file loading, FRAMEWORK.md as system context, onboarding flow

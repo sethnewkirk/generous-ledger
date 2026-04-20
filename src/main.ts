@@ -1,43 +1,64 @@
-import { Editor, MarkdownView, Notice, Plugin } from 'obsidian';
-import { EditorView, keymap } from '@codemirror/view';
+import { Editor, MarkdownView, Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { Prec } from '@codemirror/state';
-import { GenerousLedgerSettings, GenerousLedgerSettingTab, DEFAULT_SETTINGS } from './settings';
-import { ClaudeCodeProcess, ClaudeCodeOptions, checkClaudeCodeVersion } from './claude-process';
+import { EditorView, keymap } from '@codemirror/view';
+import { DEFAULT_SETTINGS, GenerousLedgerSettings, GenerousLedgerSettingTab } from './settings';
+import { checkClaudeCodeVersion } from './claude-process';
+import { checkCodexExecStatus } from './codex-process';
+import { captureActivitySnapshot, buildActivitySummary, diffActivitySnapshots } from './activity-tracker';
+import { StewardThreadStore, createThreadTitle } from './chat-store';
+import { StewardChatView, STEWARD_CHAT_VIEW_TYPE } from './chat-view';
+import { NoteIntent, NoteWritebackAction, StewardThread, StewardTurn } from './chat-types';
+import { buildChatPrompt, buildOnboardingPrompt, parseOnboardingCompletion } from './conversation-prompts';
+import { runProviderTurn } from './conversation-runtime';
+import { StewardOnboardingView, STEWARD_ONBOARDING_VIEW_TYPE } from './onboarding-view';
+import { getRangeForOffsets, createNoteIntent, buildLinkedNoteContent, buildLinkedNotePath, insertCalloutIntoNoteText, replaceSelectionInNoteText, selectionStillMatches } from './note-context';
+import { getConfiguredHandle, getMissingProviderNotice, getProviderBinaryPath, getProviderModel, normalizeConfiguredProvider } from './provider-config';
+import { AssistantProvider, getProviderDisplayName } from './provider-types';
 import { SessionManager } from './session-manager';
-import { StreamMessage, extractStreamingText, extractTextContent, extractSessionId, extractError, extractCurrentToolUse, extractThinkingAndText, separateThinkingFromAnswer } from './stream-parser';
-import { ResponseRenderer } from './renderer';
-import { OnboardingTerminalView, TERMINAL_VIEW_TYPE } from './terminal-view';
 import { TerminalSessionStore } from './terminal-session';
 import {
 	claudeIndicatorField,
-	setIndicatorState,
-	findClaudeMentionInView,
+	findAssistantMentionInView,
 	getParagraphAtCursor,
-	removeClaudeMentionFromText,
-	hasClaudeMention,
+	hasAssistantMention,
 	ParagraphBounds,
+	removeAssistantMentionFromText,
+	setIndicatorState,
 } from './trigger';
+
+interface SendCallbacks {
+	onAssistantText?: (text: string) => void;
+}
 
 export default class GenerousLedgerPlugin extends Plugin {
 	settings: GenerousLedgerSettings;
-	private sessionManager: SessionManager;
-	private currentProcess: ClaudeCodeProcess | null = null;
-	private claudeCodeReady = false;
+	private sessionManager!: SessionManager;
 	private processingRequest = false;
-	private terminalSession: TerminalSessionStore;
-	private terminalView: OnboardingTerminalView | null = null;
+	private threadStore!: StewardThreadStore;
+	private legacyOnboardingSession!: TerminalSessionStore;
+	private chatView: StewardChatView | null = null;
+	private onboardingView: StewardOnboardingView | null = null;
 
 	async onload() {
 		await this.loadSettings();
 		this.sessionManager = new SessionManager(this.app);
-		this.terminalSession = new TerminalSessionStore(this);
-		await this.terminalSession.load();
-		await this.checkClaudeCodeSetup();
+		this.threadStore = new StewardThreadStore(this.app.vault.adapter as any);
+		this.legacyOnboardingSession = new TerminalSessionStore(this);
+		await this.legacyOnboardingSession.load();
+		await this.threadStore.ensureStore();
+		await this.migrateLegacyOnboardingSession();
+		await this.checkConfiguredProviderSetup(false);
 		this.checkProfileExists();
 
-		this.registerView(TERMINAL_VIEW_TYPE, (leaf) => {
-			const view = new OnboardingTerminalView(leaf, this);
-			this.terminalView = view;
+		this.registerView(STEWARD_CHAT_VIEW_TYPE, (leaf) => {
+			const view = new StewardChatView(leaf, this);
+			this.chatView = view;
+			return view;
+		});
+
+		this.registerView(STEWARD_ONBOARDING_VIEW_TYPE, (leaf) => {
+			const view = new StewardOnboardingView(leaf, this);
+			this.onboardingView = view;
 			return view;
 		});
 
@@ -47,8 +68,8 @@ export default class GenerousLedgerPlugin extends Plugin {
 			claudeIndicatorField,
 			Prec.highest(keymap.of([{
 				key: 'Enter',
-				run: (view: EditorView) => this.handleEnterKey(view)
-			}]))
+				run: (view: EditorView) => this.handleEnterKey(view),
+			}])),
 		]);
 
 		this.registerEvent(
@@ -58,96 +79,449 @@ export default class GenerousLedgerPlugin extends Plugin {
 		);
 
 		this.addCommand({
-			id: 'ask-claude',
-			name: 'Ask Claude about current paragraph',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
+			id: 'open-steward-chat',
+			name: 'Open Steward Chat',
+			callback: async () => {
+				await this.openStewardChat();
+			},
+		});
+
+		this.addCommand({
+			id: 'send-current-paragraph-to-chat',
+			name: 'Send current paragraph to Steward Chat',
+			editorCallback: async (editor: Editor) => {
 				const cmView = this.getEditorView(editor);
 				if (cmView) {
-					this.triggerClaude(cmView);
+					await this.triggerCurrentParagraphToChat(cmView, 'command');
 				}
-			}
+			},
 		});
 
 		this.addCommand({
 			id: 'start-onboarding',
 			name: 'Begin onboarding',
 			callback: async () => {
-				await this.startTerminalOnboarding();
-			}
+				await this.openOnboarding();
+			},
 		});
 
 		this.addCommand({
 			id: 'clear-session',
-			name: 'Clear Claude conversation for this note',
-			editorCallback: async (editor: Editor, view: MarkdownView) => {
+			name: 'Clear legacy inline conversation for this note',
+			editorCallback: async (_editor: Editor, view: MarkdownView) => {
 				const file = view.file;
-				if (file) {
-					await this.sessionManager.clearSession(file);
-					new Notice('Claude conversation cleared for this note.');
+				if (!file) {
+					return;
 				}
-			}
+
+				const provider = this.getConfiguredProvider();
+				await this.sessionManager.clearSession(file, provider ?? undefined);
+				new Notice(provider
+					? `${getProviderDisplayName(provider)} legacy inline conversation cleared for this note.`
+					: 'All legacy inline assistant conversations cleared for this note.');
+			},
 		});
 
-		this.addRibbonIcon('message-square', 'Ask Claude', () => {
-			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!view) {
-				new Notice('Open a markdown note first.');
-				return;
-			}
-			const cmView = this.getEditorView(view.editor);
-			if (cmView) {
-				this.triggerClaude(cmView);
-			}
+		this.addRibbonIcon('message-square', 'Open Steward Chat', async () => {
+			await this.openStewardChat();
 		});
 
 		console.log('Generous Ledger plugin loaded');
 	}
 
 	onunload() {
-		this.currentProcess?.abort();
-		this.app.workspace.detachLeavesOfType(TERMINAL_VIEW_TYPE);
+		this.app.workspace.detachLeavesOfType(STEWARD_CHAT_VIEW_TYPE);
+		this.app.workspace.detachLeavesOfType(STEWARD_ONBOARDING_VIEW_TYPE);
 		console.log('Generous Ledger plugin unloaded');
 	}
 
+	getActiveProvider(): AssistantProvider | null {
+		return this.getConfiguredProvider();
+	}
+
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const data = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = {
+			...data,
+			provider: normalizeConfiguredProvider(data.provider),
+			assistantHandle: getConfiguredHandle(data.assistantHandle),
+			codexPath: data.codexPath || DEFAULT_SETTINGS.codexPath,
+			claudePath: data.claudePath || DEFAULT_SETTINGS.claudePath,
+			codexModel: typeof data.codexModel === 'string' ? data.codexModel : DEFAULT_SETTINGS.codexModel,
+			claudeModel: typeof data.claudeModel === 'string' ? data.claudeModel : DEFAULT_SETTINGS.claudeModel,
+		};
 	}
 
 	async saveSettings() {
 		const allData = (await this.loadData()) || {};
-		allData.model = this.settings.model;
-		allData.claudeCodePath = this.settings.claudeCodePath;
+		allData.provider = this.settings.provider;
+		allData.assistantHandle = this.assistantHandle;
+		allData.codexPath = this.settings.codexPath;
+		allData.claudePath = this.settings.claudePath;
+		allData.codexModel = this.settings.codexModel;
+		allData.claudeModel = this.settings.claudeModel;
 		await this.saveData(allData);
 	}
 
-	private async checkClaudeCodeSetup(): Promise<void> {
-		const status = await checkClaudeCodeVersion(this.settings.claudeCodePath);
+	async listChatThreads() {
+		const provider = this.getConfiguredProvider();
+		if (!provider) {
+			return [];
+		}
+		return this.threadStore.listThreads('chat', provider);
+	}
 
-		if (!status.installed) {
-			new Notice('Claude Code CLI not found. Install with: npm i -g @anthropic-ai/claude-code', 10000);
+	async loadChatThread(threadId: string): Promise<StewardThread | null> {
+		return this.threadStore.loadThread(threadId);
+	}
+
+	async getDefaultChatThread(): Promise<StewardThread | null> {
+		const provider = this.getConfiguredProvider();
+		if (!provider) {
+			return null;
+		}
+
+		const existing = await this.threadStore.getLatestThread('chat', provider);
+		if (existing) {
+			return existing;
+		}
+
+		return this.createFreshChatThread();
+	}
+
+	async createFreshChatThread(): Promise<StewardThread> {
+		const provider = await this.requireConfiguredProvider();
+		return this.threadStore.createThread({
+			threadKind: 'chat',
+			status: 'active',
+			provider,
+			title: 'New chat',
+			runtimeSessionId: null,
+			turns: [],
+			sourceContext: null,
+			onboardingCompletedAt: null,
+		});
+	}
+
+	async openStewardChat(): Promise<StewardChatView> {
+		const view = await this.activateChatView();
+		const thread = await this.getDefaultChatThread();
+		if (thread) {
+			view.setThread(thread);
+		}
+		return view;
+	}
+
+	async getOrCreateOnboardingThread(): Promise<StewardThread> {
+		const provider = await this.requireConfiguredProvider();
+		const existing = await this.threadStore.getLatestThread('onboarding');
+		if (existing) {
+			if (existing.provider !== provider) {
+				existing.provider = provider;
+				await this.threadStore.saveThread(existing);
+			}
+			return existing;
+		}
+
+		return this.threadStore.createThread({
+			threadKind: 'onboarding',
+			status: 'active',
+			provider,
+			title: 'Onboarding',
+			runtimeSessionId: null,
+			turns: [],
+			sourceContext: null,
+			onboardingCompletedAt: null,
+		});
+	}
+
+	async openOnboarding(): Promise<StewardOnboardingView> {
+		await this.requireConfiguredProvider();
+		const view = await this.activateOnboardingView();
+		const thread = await this.getOrCreateOnboardingThread();
+		view.setThread(thread);
+		return view;
+	}
+
+	async restartOnboarding(): Promise<StewardThread> {
+		const provider = await this.requireConfiguredProvider();
+		return this.threadStore.createThread({
+			threadKind: 'onboarding',
+			status: 'active',
+			provider,
+			title: 'Onboarding',
+			runtimeSessionId: null,
+			turns: [],
+			sourceContext: null,
+			onboardingCompletedAt: null,
+		});
+	}
+
+	async redoOnboarding(): Promise<StewardThread> {
+		const thread = await this.getOrCreateOnboardingThread();
+		const turns = [...thread.turns];
+
+		if (turns.length === 0) {
+			return thread;
+		}
+
+		if (turns[turns.length - 1]?.role === 'assistant') {
+			turns.pop();
+		}
+		if (turns[turns.length - 1]?.role === 'user') {
+			turns.pop();
+		}
+
+		thread.turns = turns;
+		thread.status = 'active';
+		thread.onboardingCompletedAt = null;
+		thread.runtimeSessionId = null;
+		await this.threadStore.saveThread(thread);
+		return thread;
+	}
+
+	async sendChatMessage(
+		thread: StewardThread,
+		userText: string,
+		noteIntent: NoteIntent | null,
+		callbacks: SendCallbacks = {}
+	): Promise<StewardThread> {
+		if (this.processingRequest) {
+			throw new Error('Steward is already processing a request.');
+		}
+
+		const provider = await this.requireConfiguredProvider();
+		await this.assertProviderReady();
+		const activeThread = thread.provider === provider
+			? thread
+			: await this.createFreshChatThread();
+
+		const attachedContext = noteIntent ?? activeThread.sourceContext;
+		const userTurn = this.createTurn('user', userText, attachedContext);
+		activeThread.turns.push(userTurn);
+		activeThread.sourceContext = attachedContext;
+		if (activeThread.title === 'New chat') {
+			activeThread.title = createThreadTitle(userText, 'New chat');
+		}
+		await this.threadStore.saveThread(activeThread);
+
+		const trackedPaths = ['profile', 'memory'];
+		if (attachedContext) {
+			trackedPaths.push(attachedContext.notePath);
+		}
+		const beforeSnapshot = captureActivitySnapshot(this.getVaultPath(), trackedPaths);
+
+		this.processingRequest = true;
+		try {
+			const result = await runProviderTurn({
+				provider,
+				prompt: await buildChatPrompt(this.app.vault.adapter as {
+					exists(path: string, sensitive?: boolean): Promise<boolean>;
+					read(path: string): Promise<string>;
+				}, {
+					provider,
+					userText,
+					noteIntent: attachedContext,
+				}),
+				cwd: this.getVaultPath(),
+				sessionId: activeThread.runtimeSessionId || undefined,
+				model: getProviderModel(provider, this.settings),
+				binaryPath: getProviderBinaryPath(provider, this.settings),
+				timeoutMs: 15 * 60 * 1000,
+			}, {
+				onText: callbacks.onAssistantText,
+			});
+
+			activeThread.runtimeSessionId = result.sessionId || activeThread.runtimeSessionId;
+			const afterSnapshot = captureActivitySnapshot(this.getVaultPath(), trackedPaths);
+			const changedFiles = diffActivitySnapshots(beforeSnapshot, afterSnapshot);
+
+			const assistantText = result.error
+				? `Error: ${result.error}`
+				: (result.text.trim() || 'Steward returned an empty response.');
+
+			const assistantTurn = this.createTurn(
+				result.error ? 'system' : 'assistant',
+				assistantText,
+				attachedContext,
+				result.error ? null : buildActivitySummary(
+					attachedContext,
+					changedFiles,
+					attachedContext ? ['insert-callout', 'replace-selection', 'create-linked-note'] : []
+				)
+			);
+
+			activeThread.turns.push(assistantTurn);
+			await this.threadStore.saveThread(activeThread);
+			return activeThread;
+		} finally {
+			this.processingRequest = false;
+		}
+	}
+
+	async sendOnboardingMessage(
+		thread: StewardThread,
+		userText: string | null,
+		callbacks: SendCallbacks = {}
+	): Promise<StewardThread> {
+		if (this.processingRequest) {
+			throw new Error('Steward is already processing a request.');
+		}
+
+		const provider = await this.requireConfiguredProvider();
+		await this.assertProviderReady();
+
+		const activeThread = thread;
+		activeThread.provider = provider;
+		activeThread.status = 'active';
+		activeThread.onboardingCompletedAt = null;
+		activeThread.runtimeSessionId = null;
+
+		if (userText) {
+			activeThread.turns.push(this.createTurn('user', userText, null));
+		}
+		await this.threadStore.saveThread(activeThread);
+
+		this.processingRequest = true;
+		try {
+			const result = await runProviderTurn({
+				provider,
+				prompt: await buildOnboardingPrompt(this.app.vault.adapter as {
+					exists(path: string, sensitive?: boolean): Promise<boolean>;
+					read(path: string): Promise<string>;
+				}, provider, activeThread, undefined),
+				cwd: this.getVaultPath(),
+				model: getProviderModel(provider, this.settings),
+				binaryPath: getProviderBinaryPath(provider, this.settings),
+				timeoutMs: 15 * 60 * 1000,
+			}, {
+				onText: callbacks.onAssistantText,
+			});
+
+			const assistantText = result.error
+				? `Error: ${result.error}`
+				: (result.text.trim() || 'Steward returned an empty response.');
+
+			if (result.error) {
+				activeThread.turns.push(this.createTurn('system', assistantText, null));
+			} else {
+				const completion = parseOnboardingCompletion(assistantText);
+				activeThread.turns.push(this.createTurn('assistant', completion.cleanedText, null));
+				if (completion.completed) {
+					activeThread.status = 'completed';
+					activeThread.onboardingCompletedAt = new Date().toISOString();
+				}
+			}
+
+			await this.threadStore.saveThread(activeThread);
+			return activeThread;
+		} finally {
+			this.processingRequest = false;
+		}
+	}
+
+	async applyNoteWriteback(turn: StewardTurn, action: NoteWritebackAction): Promise<void> {
+		const noteIntent = turn.noteIntent;
+		if (!noteIntent) {
+			new Notice('This reply has no attached note context.');
 			return;
 		}
 
-		if (!status.compatible) {
-			new Notice(`Claude Code v${status.version} may not be compatible. Run: npm update -g @anthropic-ai/claude-code`, 10000);
-		}
-
-		if (!status.authenticated) {
-			new Notice('Claude Code not authenticated. Run "claude" in terminal to set up your API key.', 10000);
+		const abstractFile = this.app.vault.getAbstractFileByPath(noteIntent.notePath);
+		if (!(abstractFile instanceof TFile)) {
+			new Notice(`Source note not found: ${noteIntent.notePath}`);
 			return;
 		}
 
-		this.claudeCodeReady = true;
-		console.log(`Claude Code ready: v${status.version}`);
+		if (action === 'create-linked-note') {
+			const newPath = normalizePath(buildLinkedNotePath(noteIntent.notePath));
+			const created = await this.app.vault.create(newPath, buildLinkedNoteContent(noteIntent.notePath, turn.text));
+			const leaf = this.app.workspace.getLeaf('tab');
+			await leaf.openFile(created);
+			new Notice(`Created ${created.path}`);
+			return;
+		}
+
+		const currentText = await this.app.vault.cachedRead(abstractFile);
+		if (!selectionStillMatches(currentText, noteIntent)) {
+			new Notice('The source note changed, so Steward will not apply this write-back automatically.');
+			return;
+		}
+
+		const nextText = action === 'insert-callout'
+			? insertCalloutIntoNoteText(currentText, noteIntent, turn.text, this.assistantHandle)
+			: replaceSelectionInNoteText(currentText, noteIntent, turn.text);
+
+		await this.app.vault.modify(abstractFile, nextText);
+		const leaf = this.app.workspace.getLeaf(false);
+		await leaf.openFile(abstractFile);
+		new Notice(action === 'insert-callout' ? 'Inserted Steward callout into the note.' : 'Replaced the note selection with Steward’s reply.');
+	}
+
+	private get assistantHandle(): string {
+		return getConfiguredHandle(this.settings.assistantHandle);
+	}
+
+	private getConfiguredProvider(): AssistantProvider | null {
+		return normalizeConfiguredProvider(this.settings.provider);
+	}
+
+	private async requireConfiguredProvider(): Promise<AssistantProvider> {
+		const provider = this.getConfiguredProvider();
+		if (!provider) {
+			throw new Error(getMissingProviderNotice());
+		}
+		return provider;
+	}
+
+	private async assertProviderReady(): Promise<void> {
+		if (!(await this.checkConfiguredProviderSetup())) {
+			throw new Error('The configured provider is not ready.');
+		}
+	}
+
+	private async checkConfiguredProviderSetup(showNotice = true): Promise<boolean> {
+		const provider = this.getConfiguredProvider();
+		if (!provider) {
+			if (showNotice) {
+				new Notice(getMissingProviderNotice(), 10000);
+			}
+			return false;
+		}
+
+		if (provider === 'claude') {
+			const status = await checkClaudeCodeVersion(this.settings.claudePath);
+			if (!status.installed) {
+				if (showNotice) {
+					new Notice('Claude CLI not found. Install Claude Code or update the Claude path in settings.', 10000);
+				}
+				return false;
+			}
+			if (!status.authenticated) {
+				if (showNotice) {
+					new Notice('Claude is not authenticated. Run "claude" in a terminal and complete setup.', 10000);
+				}
+				return false;
+			}
+			return true;
+		}
+
+		const status = await checkCodexExecStatus(this.settings.codexPath);
+		if (!status.installed || !status.ready) {
+			if (showNotice) {
+				new Notice(status.problem || 'Codex is not ready. Check the Codex path and local state directory.', 12000);
+			}
+			return false;
+		}
+		return true;
 	}
 
 	private checkProfileExists(): void {
-		// Wait for vault to be ready before checking
 		this.app.workspace.onLayoutReady(() => {
 			const profileIndex = this.app.vault.getAbstractFileByPath('profile/index.md');
 			if (!profileIndex) {
 				new Notice(
-					'Welcome to Generous Ledger. Run "Start onboarding" from the command palette to begin.',
+					'Welcome to Generous Ledger. Run "Begin onboarding" or open Steward Chat to begin.',
 					15000
 				);
 			}
@@ -155,504 +529,208 @@ export default class GenerousLedgerPlugin extends Plugin {
 	}
 
 	private updateVisualIndicator(editor: Editor) {
-		if (this.processingRequest) return;
+		if (this.processingRequest) {
+			return;
+		}
 
 		const view = this.getEditorView(editor);
-		if (!view) return;
+		if (!view) {
+			return;
+		}
 
-		const mentionPos = findClaudeMentionInView(view);
+		const mentionPos = findAssistantMentionInView(view, this.assistantHandle);
 		view.dispatch({
 			effects: setIndicatorState.of(
 				mentionPos !== null ? { pos: mentionPos, state: 'ready' } : null
-			)
+			),
 		});
 	}
 
 	private handleEnterKey(view: EditorView): boolean {
-		if (this.processingRequest) return false;
+		if (this.processingRequest) {
+			return false;
+		}
 
-		const sel = view.state.selection.main;
-
-		// Selection mode: if text is selected and contains @Claude, use the selection as the prompt
-		if (sel.from !== sel.to) {
-			const selectedText = view.state.sliceDoc(sel.from, sel.to);
-			if (hasClaudeMention(selectedText)) {
-				const selectionBounds: ParagraphBounds = {
-					from: sel.from,
-					to: sel.to,
+		const selection = view.state.selection.main;
+		if (selection.from !== selection.to) {
+			const selectedText = view.state.sliceDoc(selection.from, selection.to);
+			if (hasAssistantMention(selectedText, this.assistantHandle)) {
+				const bounds: ParagraphBounds = {
+					from: selection.from,
+					to: selection.to,
 					text: selectedText,
 				};
-				const mentionPos = findClaudeMentionInView(view);
-				this.triggerClaudeAsync(view, selectionBounds, mentionPos);
+				const mentionPos = findAssistantMentionInView(view, this.assistantHandle);
+				void this.handoffNoteContext(view, bounds, 'mention', mentionPos);
 				return true;
 			}
 		}
 
-		const cursor = sel.head;
-		const paragraph = getParagraphAtCursor(view.state, cursor);
-
-		if (!paragraph) return false;
-
-		// Standard @Claude trigger
-		if (hasClaudeMention(paragraph.text)) {
-			const mentionPos = findClaudeMentionInView(view);
-			this.triggerClaudeAsync(view, paragraph, mentionPos);
-			return true;
+		const paragraph = getParagraphAtCursor(view.state, selection.head);
+		if (!paragraph || !hasAssistantMention(paragraph.text, this.assistantHandle)) {
+			return false;
 		}
 
-		return false;
+		const mentionPos = findAssistantMentionInView(view, this.assistantHandle);
+		void this.handoffNoteContext(view, paragraph, 'mention', mentionPos);
+		return true;
 	}
 
-	private triggerClaude(view: EditorView): void {
+	private async triggerCurrentParagraphToChat(view: EditorView, triggerSource: NoteIntent['triggerSource']): Promise<void> {
 		if (this.processingRequest) {
-			new Notice('Claude is already processing a request.');
+			new Notice('Steward is already processing a request.');
 			return;
 		}
 
 		const cursor = view.state.selection.main.head;
 		const paragraph = getParagraphAtCursor(view.state, cursor);
-
 		if (!paragraph) {
 			new Notice('No paragraph found at cursor.');
 			return;
 		}
 
-		const mentionPos = findClaudeMentionInView(view);
-		this.triggerClaudeAsync(view, paragraph, mentionPos);
+		const mentionPos = findAssistantMentionInView(view, this.assistantHandle);
+		await this.handoffNoteContext(view, paragraph, triggerSource, mentionPos);
 	}
 
-	private async triggerClaudeAsync(view: EditorView, paragraph: ParagraphBounds, mentionPos: number | null) {
-		if (this.processingRequest) return;
+	private async handoffNoteContext(
+		view: EditorView,
+		paragraph: ParagraphBounds,
+		triggerSource: NoteIntent['triggerSource'],
+		mentionPos: number | null
+	): Promise<void> {
+		const provider = this.getConfiguredProvider();
+		if (!provider) {
+			new Notice(getMissingProviderNotice());
+			return;
+		}
+		if (!(await this.checkConfiguredProviderSetup())) {
+			return;
+		}
 
 		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!activeView) return;
-
-		const editor = activeView.editor;
-		const file = activeView.file;
-		if (!file) return;
-
-		if (!this.claudeCodeReady) {
-			new Notice('Claude Code not ready. Check settings or install the CLI.');
+		const file = activeView?.file;
+		if (!activeView || !file) {
 			return;
 		}
 
-		const content = removeClaudeMentionFromText(paragraph.text);
-		if (!content.trim()) {
-			new Notice('Provide content for Claude to respond to.');
+		const promptText = removeAssistantMentionFromText(paragraph.text, this.assistantHandle);
+		if (!promptText.trim()) {
+			new Notice('Provide content for Steward to respond to.');
 			return;
 		}
-
-		this.processingRequest = true;
 
 		if (mentionPos !== null) {
 			view.dispatch({
-				effects: setIndicatorState.of({ pos: mentionPos, state: 'processing' })
+				effects: setIndicatorState.of({ pos: mentionPos, state: 'processing' }),
 			});
 		}
 
 		try {
-			const sessionResult = await this.sessionManager.getSessionId(file);
-			const vaultPath = (this.app.vault.adapter as any).basePath;
-
-			const renderer = new ResponseRenderer();
-			const cmView = this.getEditorView(editor);
-			renderer.init(editor, cmView?.scrollDOM);
-
-			const proc = new ClaudeCodeProcess();
-			this.currentProcess = proc;
-
-			const messages: StreamMessage[] = [];
-			let lastRenderedText = '';
-
-			proc.on('message', (msg: StreamMessage) => {
-				messages.push(msg);
-				if (msg.type === 'stream_event' || msg.type === 'assistant') {
-					const streamText = extractStreamingText(messages);
-					const contentText = extractTextContent(messages);
-					const newText = streamText || contentText;
-					if (newText && newText !== lastRenderedText) {
-						lastRenderedText = newText;
-						setTimeout(() => renderer.append(newText, editor), 0);
-					}
-				}
-
-				const currentTool = extractCurrentToolUse(messages);
-				if (currentTool && mentionPos !== null) {
-					view.dispatch({
-						effects: setIndicatorState.of({
-							pos: mentionPos,
-							state: 'processing',
-							toolName: currentTool
-						})
-					});
-				}
-			});
-
-			proc.on('close', async () => {
-				const newSessionId = extractSessionId(messages);
-				if (newSessionId) {
-					await this.sessionManager.setSessionId(file, newSessionId);
-				}
-
-				const error = extractError(messages);
-				if (error) {
-					// error is displayed to user via renderError below
-					renderer.finalize('', editor);
-					this.renderError(editor, error);
-				} else {
-					const { thinking: streamThinking, text: streamText } = extractThinkingAndText(messages);
-					const finalText = streamText || lastRenderedText || extractTextContent(messages);
-					let thinkingContent = streamThinking || undefined;
-					if (!thinkingContent && finalText) {
-						const separated = separateThinkingFromAnswer(finalText);
-						if (separated.thinking) {
-							thinkingContent = separated.thinking;
-							renderer.finalize(separated.answer, editor, thinkingContent);
-						} else {
-							renderer.finalize(finalText, editor);
-						}
-					} else {
-						renderer.finalize(finalText, editor, thinkingContent);
-					}
-				}
-
-				view.dispatch({ effects: setIndicatorState.of(null) });
-				this.currentProcess = null;
-				this.processingRequest = false;
-			});
-
-			proc.on('error', (error: Error) => {
-				console.error('Claude Code error:', error);
-
-				if (mentionPos !== null) {
-					view.dispatch({
-						effects: setIndicatorState.of({ pos: mentionPos, state: 'error' })
-					});
-				}
-
-				const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-				new Notice(`Claude error: ${errorMessage}`);
-				this.renderError(editor, errorMessage);
-
-				this.currentProcess = null;
-				this.processingRequest = false;
-			});
-
-			await proc.query(content, {
-				cwd: vaultPath,
-				sessionId: sessionResult.sessionId || undefined,
-				model: this.settings.model,
-				claudeCodePath: this.settings.claudeCodePath,
-				timeoutMs: 15 * 60 * 1000,
-			});
-
-		} catch (error) {
-			console.error('Claude request error:', error);
-
-			if (mentionPos !== null) {
-				view.dispatch({
-					effects: setIndicatorState.of({ pos: mentionPos, state: 'error' })
-				});
-			}
-
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			new Notice(`Claude error: ${errorMessage}`);
-			this.renderError(editor, errorMessage);
-
-			this.processingRequest = false;
+			const noteIntent = createNoteIntent(
+				file,
+				paragraph.text,
+				promptText,
+				getRangeForOffsets(view.state.doc.toString(), paragraph.from, paragraph.to),
+				triggerSource
+			);
+			const chatView = await this.openStewardChat();
+			await chatView.submitMessage(promptText, noteIntent);
+		} finally {
+			view.dispatch({ effects: setIndicatorState.of(null) });
 		}
 	}
 
-	private renderError(editor: Editor, errorMessage: string): void {
-		const cursor = editor.getCursor();
-		editor.replaceRange(
-			`\n\n> [!error] Claude Error\n> ${errorMessage}\n`,
-			{ line: cursor.line, ch: editor.getLine(cursor.line).length }
-		);
-	}
-
-	private async activateTerminalView(): Promise<OnboardingTerminalView> {
-		const existing = this.app.workspace.getLeavesOfType(TERMINAL_VIEW_TYPE);
+	private async activateChatView(): Promise<StewardChatView> {
+		const existing = this.app.workspace.getLeavesOfType(STEWARD_CHAT_VIEW_TYPE);
 		if (existing.length > 0) {
 			this.app.workspace.revealLeaf(existing[0]);
-			this.terminalView = existing[0].view as OnboardingTerminalView;
-			return this.terminalView;
+			this.chatView = existing[0].view as StewardChatView;
+			return this.chatView;
 		}
+
 		const leaf = this.app.workspace.getLeaf('tab');
-		await leaf.setViewState({ type: TERMINAL_VIEW_TYPE, active: true });
+		await leaf.setViewState({ type: STEWARD_CHAT_VIEW_TYPE, active: true });
 		this.app.workspace.revealLeaf(leaf);
-		return this.terminalView!;
+		this.chatView = leaf.view as StewardChatView;
+		return this.chatView;
 	}
 
-	private async startTerminalOnboarding(): Promise<void> {
-		if (!this.claudeCodeReady) {
-			new Notice('Claude Code not ready. Check settings or install the CLI.');
+	private async activateOnboardingView(): Promise<StewardOnboardingView> {
+		const existing = this.app.workspace.getLeavesOfType(STEWARD_ONBOARDING_VIEW_TYPE);
+		if (existing.length > 0) {
+			this.app.workspace.revealLeaf(existing[0]);
+			this.onboardingView = existing[0].view as StewardOnboardingView;
+			return this.onboardingView;
+		}
+
+		const leaf = this.app.workspace.getLeaf('tab');
+		await leaf.setViewState({ type: STEWARD_ONBOARDING_VIEW_TYPE, active: true });
+		this.app.workspace.revealLeaf(leaf);
+		this.onboardingView = leaf.view as StewardOnboardingView;
+		return this.onboardingView;
+	}
+
+	private async migrateLegacyOnboardingSession(): Promise<void> {
+		const existing = await this.threadStore.getLatestThread('onboarding');
+		if (existing) {
 			return;
 		}
 
-		const view = await this.activateTerminalView();
-		view.enterFullscreen();
-
-		// Check if profile already exists
-		const profileIndex = this.app.vault.getAbstractFileByPath('profile/index.md');
-		if (profileIndex) {
-			view.printSystem('Profile already exists at profile/index.md.');
-			view.printSystem('Type "redo" to start a new onboarding, or close this tab.');
-			view.setInputEnabled(true);
-			view.setSubmitHandler(async (text: string) => {
-				if (text.trim().toLowerCase() === 'redo') {
-					await this.terminalSession.clear();
-					view.printSystem('Session cleared. Restarting onboarding...');
-					view.setInputEnabled(false);
-					setTimeout(() => this.beginTerminalInterview(view), 500);
-				}
-			});
+		const log = this.legacyOnboardingSession.getLog();
+		if (log.length === 0) {
 			return;
 		}
 
-		// Check for existing session to resume
-		const log = this.terminalSession.getLog();
-		if (log.length > 0) {
-			view.replayLog(log);
-			view.printSystem('');
-			view.printSystem('Session resumed.');
-			view.setInputEnabled(true);
-			view.setSubmitHandler((text: string) => this.sendTerminalMessage(text));
+		const provider = this.legacyOnboardingSession.getProvider() ?? this.getConfiguredProvider();
+		if (!provider) {
 			return;
 		}
 
-		// Fresh start
-		await this.beginTerminalInterview(view);
-	}
-
-	private async beginTerminalInterview(view: OnboardingTerminalView): Promise<void> {
-		await this.terminalSession.start();
-
-		// Boot sequence
-		const bootLines = [
-			'GENEROUS LEDGER v1.0',
-			'PERSONAL STEWARD TERMINAL',
-			'',
-			'> Initializing...',
-		];
-
-		for (const line of bootLines) {
-			view.printSystem(line);
-			await new Promise(resolve => setTimeout(resolve, 200));
-		}
-
-		await new Promise(resolve => setTimeout(resolve, 400));
-		view.printSystem('> Session established.');
-		view.printSystem('');
-
-		await this.terminalSession.appendLog({ role: 'system', text: 'GENEROUS LEDGER v1.0\nPERSONAL STEWARD TERMINAL\n\n> Initializing...\n> Session established.' });
-
-		view.setSubmitHandler((text: string) => this.sendTerminalMessage(text));
-
-		// Send initial onboarding prompt
-		const onboardingPrompt = [
-			'CONTEXT: You are a personal steward beginning service with a new principal.',
-			'You manage a real person\'s commitments, relationships, and schedule.',
-			'Read CLAUDE.md for your full operating instructions and docs/FRAMEWORK.md for your reasoning framework.',
-			'',
-			'Your responses appear in a terminal interface. Respond in plain text only — no markdown formatting, no headers, no bullet lists, no callout syntax.',
-			'',
-			'TASK: Begin the Onboarding Protocol defined in CLAUDE.md.',
-			'Say the opening statement, then ask your first question.',
-			'',
-			'VOICE: Competent, direct, modern, approachable. You are not a butler — no deferential or archaic language.',
-			'You are not a therapist — do not over-validate or narrate feelings.',
-			'Be conversational and human. A capable person getting to know someone so they can do their job well.',
-			'',
-			'PACING: Ask ONE question at a time. Wait for the answer before asking the next.',
-			'Each question should have a specific, bounded answer. Ask for concrete facts — a name, a number, a role.',
-			'Do not ask broad open-ended questions like "who are the important people in your life" or "tell me about your household."',
-			'Instead ask specific things like "what is your name" or "do you have children" or "what do you do for work."',
-			'If the user gives a sparse answer, probe once, then accept it and move on.',
-			'',
-			'DEPTH: When the user names a person, follow up. Ask their birthday. Ask how often they talk.',
-			'Ask what role that person plays. Do not move on from a person until you have a name, role, and at least attempted birthday and contact frequency.',
-			'When the user names a commitment, ask for the timeframe, current status, and priority.',
-			'You are building individual files for each person and each commitment — you need specifics.',
-			'',
-			'SECTIONS: The interview covers five areas: identity, relationships, commitments, current state, and areas for help.',
-			'Treat them as guidelines, not walls. If the user moves into a later topic, follow the thread.',
-			'When you shift focus, announce it in your own voice — no section numbers or labels.',
-			'',
-			'FILE CREATION: Do NOT create profile files after every answer. Gather information through the conversation.',
-			'When you have enough for a section and are moving on, create the files then.',
-			'For relationships: create one file per person in profile/people/ with proper frontmatter (type, name, role, circle, birthday, anniversary, contact_frequency, status, tags, last_updated).',
-			'For commitments: create one file per commitment in profile/commitments/ with proper frontmatter (type, title, category, status, priority, deadline, timeframe, stakeholder, tags, last_updated).',
-			'File names use kebab-case: kate-newkirk.md, gym-consistency.md.',
-			'Do not announce file creation. Do not ask for confirmation.',
-			'',
-			'RESPONSE LENGTH: Keep responses short. Acknowledge the answer briefly, then ask the next question.',
-			'Do not summarize or reflect back what the user said at length.',
-			'',
-			'When the interview is complete, offer one final open-ended question before closing.',
-		].join('\n');
-
-		await this.sendTerminalPrompt(onboardingPrompt);
-	}
-
-	private async sendTerminalMessage(text: string): Promise<void> {
-		if (!this.terminalView) return;
-		if (this.processingRequest) return;
-
-		// Handle terminal commands
-		const command = text.trim().toLowerCase();
-		if (command === '/restart') {
-			await this.handleRestart();
-			return;
-		}
-		if (command === '/redo') {
-			await this.handleRedo();
-			return;
-		}
-
-		this.terminalView.printUser(text);
-		this.terminalView.setInputEnabled(false);
-		await this.terminalSession.appendLog({ role: 'user', text });
-
-		const wrappedPrompt = [
-			'[STEWARD TERMINAL — ongoing onboarding interview]',
-			'Plain text only. No markdown. No bullet lists. No headers.',
-			'Competent modern voice — approachable but not over-familiar. Not deferential, not clinical.',
-			'Ask ONE specific question at a time. Questions should have bounded answers — a name, a number, a fact.',
-			'When a person is named, follow up: birthday? contact frequency? role? Get specifics before moving on.',
-			'When a commitment is named, follow up: timeframe? status? priority? who else is involved?',
-			'Keep your response short: brief acknowledgment, then the next question.',
-			'Do NOT create files yet — gather information first, write individual person/commitment files only at section transitions.',
-			'People files go in profile/people/<kebab-name>.md with frontmatter: type, name, role, circle, birthday, anniversary, contact_frequency, status, tags, last_updated.',
-			'Commitment files go in profile/commitments/<kebab-title>.md with frontmatter: type, title, category, status, priority, deadline, timeframe, stakeholder, tags, last_updated.',
-			'',
-			text,
-		].join('\n');
-
-		await this.sendTerminalPrompt(wrappedPrompt);
-	}
-
-	private async handleRestart(): Promise<void> {
-		if (!this.terminalView) return;
-
-		this.terminalView.clearDisplay();
-		this.terminalView.showSpinner();
-		await this.terminalSession.clear();
-
-		// Brief pause so the spinner is visible
-		await new Promise(resolve => setTimeout(resolve, 600));
-
-		this.terminalView.clearDisplay();
-		await this.beginTerminalInterview(this.terminalView);
-	}
-
-	private async handleRedo(): Promise<void> {
-		if (!this.terminalView) return;
-
-		this.terminalView.printUser('');  // clears content and shows spinner
-		const previousQuestion = await this.terminalSession.removeLastExchange();
-
-		if (!previousQuestion) {
-			this.terminalView.printSystem('Nothing to redo.');
-			this.terminalView.setInputEnabled(true);
-			return;
-		}
-
-		// Brief pause so the spinner is visible
-		await new Promise(resolve => setTimeout(resolve, 600));
-
-		this.terminalView.showQuestion(previousQuestion.text);
-		this.terminalView.setInputEnabled(true);
-	}
-
-	private async sendTerminalPrompt(prompt: string): Promise<void> {
-		if (!this.terminalView) return;
-
-		this.processingRequest = true;
-		const vaultPath = (this.app.vault.adapter as any).basePath;
-		const sessionId = await this.terminalSession.getSessionId();
-
-		const proc = new ClaudeCodeProcess();
-		this.currentProcess = proc;
-
-		const messages: StreamMessage[] = [];
-		let lastStreamedLength = 0;
-
-		proc.on('message', (msg: StreamMessage) => {
-			messages.push(msg);
-
-			if (msg.type === 'stream_event' || msg.type === 'assistant') {
-				const fullText = extractStreamingText(messages) || extractTextContent(messages);
-				if (fullText.length > lastStreamedLength) {
-					const delta = fullText.slice(lastStreamedLength);
-					lastStreamedLength = fullText.length;
-					this.terminalView?.printSteward(delta);
-				}
-			}
-		});
-
-		proc.on('close', async () => {
-			const newSessionId = extractSessionId(messages);
-			if (newSessionId) {
-				await this.terminalSession.setSessionId(newSessionId);
-			}
-
-			const error = extractError(messages);
-			if (error) {
-				this.terminalView?.finalizeStewardTurn();
-				this.terminalView?.printSystem('ERROR: ' + error);
-				this.terminalView?.setInputEnabled(true);
-			} else {
-				const finalText = extractStreamingText(messages) || extractTextContent(messages);
-				this.terminalView?.finalizeStewardTurn();
-
-				if (finalText) {
-					await this.terminalSession.appendLog({ role: 'steward', text: finalText });
-				}
-
-				// Check if onboarding is complete
-				const profileNowExists = this.app.vault.getAbstractFileByPath('profile/index.md');
-				if (profileNowExists) {
-					this.terminalView?.setInputEnabled(false);
-					await this.terminalSession.clear();
-
-					// Close the terminal after a brief delay
-					window.setTimeout(() => {
-						if (this.terminalView) {
-							this.terminalView.leaf.detach();
-							this.terminalView = null;
-						}
-					}, 3000);
-				}
-			}
-
-			this.currentProcess = null;
-			this.processingRequest = false;
-		});
-
-		proc.on('error', (error: Error) => {
-			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			this.terminalView?.finalizeStewardTurn();
-			this.terminalView?.printSystem('ERROR: ' + errorMessage);
-			this.terminalView?.setInputEnabled(true);
-			this.currentProcess = null;
-			this.processingRequest = false;
-		});
-
-		const options: ClaudeCodeOptions = {
-			cwd: vaultPath,
-			model: this.settings.model,
-			claudeCodePath: this.settings.claudeCodePath,
+		const thread: StewardThread = {
+			threadId: 'thread_legacy_onboarding',
+			threadKind: 'onboarding',
+			status: 'active',
+			provider,
+			title: 'Onboarding',
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			runtimeSessionId: null,
+			sourceContext: null,
+			onboardingCompletedAt: null,
+			turns: log.map((entry) => this.createTurn(
+				entry.role === 'steward' ? 'assistant' : entry.role,
+				entry.text,
+				null
+			)),
 		};
-		if (sessionId) {
-			options.sessionId = sessionId;
-		}
 
-		proc.query(prompt, options);
+		await this.threadStore.upsertImportedThread(thread);
+		await this.legacyOnboardingSession.clear();
+	}
+
+	private createTurn(
+		role: StewardTurn['role'],
+		text: string,
+		noteIntent: NoteIntent | null,
+		activitySummary: StewardTurn['activitySummary'] = null
+	): StewardTurn {
+		return {
+			turnId: crypto.randomUUID(),
+			role,
+			text,
+			createdAt: new Date().toISOString(),
+			noteIntent,
+			activitySummary,
+		};
+	}
+
+	private getVaultPath(): string {
+		return (this.app.vault.adapter as { basePath?: string }).basePath || '/';
 	}
 
 	private getEditorView(editor: Editor): EditorView | null {
-		// @ts-ignore -- Obsidian internal API
+		// @ts-ignore Obsidian internal CodeMirror view
 		return editor.cm as EditorView;
 	}
 }

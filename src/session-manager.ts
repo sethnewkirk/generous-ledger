@@ -1,39 +1,31 @@
 import { App, TFile, Notice } from 'obsidian';
-
-export interface SessionResult {
-	sessionId: string | null;
-	wasInvalid: boolean;
-}
+import { AssistantProvider } from './provider-types';
+import { clearStoredSessionId, getStoredSessionId, SessionLookupResult, setStoredSessionId } from './session-state';
 
 export class SessionManager {
 	constructor(private app: App) {}
 
-	async getSessionId(file: TFile): Promise<SessionResult> {
+	async getSessionId(file: TFile, provider: AssistantProvider): Promise<SessionLookupResult> {
 		const cache = this.app.metadataCache.getFileCache(file);
-		const storedId = cache?.frontmatter?.claude_session_id;
+		const result = getStoredSessionId(cache?.frontmatter as Record<string, unknown> | undefined, provider);
 
-		if (!storedId) {
-			return { sessionId: null, wasInvalid: false };
+		if (result.wasInvalid) {
+			new Notice(`Invalid ${provider === 'claude' ? 'Claude' : 'Codex'} session data in frontmatter. Starting a new conversation.`);
+			await this.clearSession(file, provider);
 		}
 
-		if (typeof storedId !== 'string' || storedId.length < 10) {
-			new Notice('Invalid Claude session ID in frontmatter. Starting new conversation.');
-			await this.clearSession(file);
-			return { sessionId: null, wasInvalid: true };
-		}
-
-		return { sessionId: storedId, wasInvalid: false };
+		return result;
 	}
 
-	async setSessionId(file: TFile, sessionId: string): Promise<void> {
+	async setSessionId(file: TFile, provider: AssistantProvider, sessionId: string): Promise<void> {
 		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-			frontmatter.claude_session_id = sessionId;
+			setStoredSessionId(frontmatter as Record<string, unknown>, provider, sessionId);
 		});
 	}
 
-	async clearSession(file: TFile): Promise<void> {
+	async clearSession(file: TFile, provider?: AssistantProvider): Promise<void> {
 		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-			delete frontmatter.claude_session_id;
+			clearStoredSessionId(frontmatter as Record<string, unknown>, provider);
 		});
 	}
 }

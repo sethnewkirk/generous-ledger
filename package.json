@@ -8,7 +8,9 @@
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:python": "python3 -m unittest discover -s scripts/adapters/tests -v && python3 -m unittest discover -s scripts/steward_memory/tests -v && python3 -m unittest discover -s scripts/steward_policy/tests -v && python3 scripts/validate_policy_docs.py",
+    "verify": "npm run build && npm test && npm run test:python"
   },
   "keywords": [
     "obsidian",

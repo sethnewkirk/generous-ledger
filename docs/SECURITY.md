@@ -1,3 +1,7 @@
+# Historical Archive: Legacy Security Audit
+
+This document captures a security pass from the earlier inline plugin phase. It is retained for reference, but it does not describe the full current steward architecture.
+
 # Security Documentation
 
 This document contains the security audit results and fixes applied to the Generous Ledger plugin.

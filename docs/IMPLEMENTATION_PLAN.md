@@ -1,3 +1,7 @@
+# Historical Archive: Original Inline Plugin Plan
+
+This document describes the original single-provider `@Claude` plugin concept. It is retained for history only and does not describe the current steward system.
+
 # Generous Ledger - Obsidian Plugin Implementation Plan
 
 ## Project Overview

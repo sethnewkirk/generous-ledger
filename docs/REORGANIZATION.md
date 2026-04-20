@@ -1,3 +1,7 @@
+# Historical Archive: Repository Reorganization
+
+This document describes an earlier repository shape and is retained as history only. Refer to the active architecture and development docs for the current layout.
+
 # Repository Reorganization
 
 **Date:** 2026-01-06

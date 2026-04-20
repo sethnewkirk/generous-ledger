@@ -1,4 +1,6 @@
 import type GenerousLedgerPlugin from './main';
+import { AssistantProvider } from './provider-types';
+import { normalizeConfiguredProvider } from './provider-config';
 
 export interface ConversationEntry {
 	role: 'steward' | 'user' | 'system';
@@ -7,12 +9,14 @@ export interface ConversationEntry {
 
 export interface TerminalSessionData {
 	sessionId: string | null;
+	provider: AssistantProvider | null;
 	log: ConversationEntry[];
 	startedAt: string | null;
 }
 
 const DEFAULT_SESSION: TerminalSessionData = {
 	sessionId: null,
+	provider: null,
 	log: [],
 	startedAt: null,
 };
@@ -27,9 +31,11 @@ export class TerminalSessionStore {
 
 	async load(): Promise<TerminalSessionData> {
 		const allData = (await this.plugin.loadData()) || {};
+		const rawSession = allData.terminalSession || {};
 		const session: TerminalSessionData = {
 			...DEFAULT_SESSION,
-			...(allData.terminalSession || {}),
+			...rawSession,
+			provider: normalizeConfiguredProvider(rawSession.provider),
 		};
 		this.cache = session;
 		return session;
@@ -47,9 +53,19 @@ export class TerminalSessionStore {
 		return this.cache!.sessionId;
 	}
 
+	getProvider(): AssistantProvider | null {
+		return this.cache?.provider ?? null;
+	}
+
 	async setSessionId(id: string): Promise<void> {
 		if (!this.cache) await this.load();
 		this.cache!.sessionId = id;
+		await this.save();
+	}
+
+	async setProvider(provider: AssistantProvider | null): Promise<void> {
+		if (!this.cache) await this.load();
+		this.cache!.provider = provider;
 		await this.save();
 	}
 

@@ -35,6 +35,7 @@ from lib.vault_writer import VaultWriter
 from lib.sync_state import SyncState
 from lib.logging_config import setup_logging
 from lib.credentials import get_config
+from lib.contact_index import load_message_contacts, normalize_phone as shared_normalize_phone
 
 # Core Data epoch: 2001-01-01 00:00:00 UTC
 CORE_DATA_EPOCH = 978307200
@@ -262,72 +263,13 @@ def fetch_messages(conn: sqlite3.Connection, days: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def normalize_phone(phone: str) -> str:
-    """Normalize a phone number by stripping everything except digits.
-
-    Keeps leading +1 as just the digits for US numbers.
-
-    Args:
-        phone: Raw phone string.
-
-    Returns:
-        Digits-only string.
-    """
-    digits = re.sub(r"[^\d]", "", phone)
-    # US numbers: strip leading 1 if 11 digits
-    if len(digits) == 11 and digits.startswith("1"):
-        digits = digits[1:]
-    return digits
+    """Normalize a phone number by stripping everything except digits."""
+    return shared_normalize_phone(phone)
 
 
 def load_known_contacts(vault_path: str) -> dict[str, str]:
-    """Scan profile/people/*.md for phone numbers and emails in YAML frontmatter.
-
-    Returns:
-        Dict mapping normalized identifier (phone digits or lowercase email)
-        to person name.
-    """
-    import yaml
-
-    people_dir = Path(vault_path).expanduser().resolve() / "profile" / "people"
-    contacts: dict[str, str] = {}
-
-    if not people_dir.is_dir():
-        return contacts
-
-    for md_file in people_dir.glob("*.md"):
-        text = md_file.read_text(encoding="utf-8")
-        if not text.startswith("---"):
-            continue
-        end = text.find("---", 3)
-        if end == -1:
-            continue
-        try:
-            fm = yaml.safe_load(text[3:end])
-        except Exception:
-            continue
-        if not isinstance(fm, dict):
-            continue
-
-        name = fm.get("name", md_file.stem)
-
-        # Phone numbers
-        phones = fm.get("phone", [])
-        if isinstance(phones, (str, int)):
-            phones = [str(phones)]
-        for phone in phones:
-            normalized = normalize_phone(str(phone))
-            if len(normalized) >= 7:
-                contacts[normalized] = name
-
-        # Email addresses
-        emails = fm.get("email", [])
-        if isinstance(emails, str):
-            emails = [emails]
-        for addr in emails:
-            if isinstance(addr, str) and "@" in addr:
-                contacts[addr.strip().lower()] = name
-
-    return contacts
+    """Load known message contacts from profile and synced contact data."""
+    return load_message_contacts(vault_path)
 
 
 def match_contact(handle_id: str, known_contacts: dict[str, str]) -> str | None:
@@ -490,6 +432,7 @@ def format_day(
         "conversation_count": total_conversations,
         "message_count": total_messages,
         "known_contact_conversations": len(known_convos),
+        "services": sorted({m["service"] or "iMessage" for m in messages}),
         "source": "imessage-local",
         "last_synced": datetime.now().isoformat(),
         "tags": ["data", "messages"],

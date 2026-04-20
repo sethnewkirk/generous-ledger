@@ -102,6 +102,22 @@ class TestVaultWriter(unittest.TestCase):
         self.assertIn("- data", content)
         self.assertIn("- weather", content)
 
+    def test_write_relative_file(self):
+        path = self.writer.write_file(
+            "memory/events/test.md",
+            frontmatter={"type": "memory-event"},
+            body="hello",
+        )
+        self.assertTrue(path.exists())
+        self.assertEqual(path.resolve(), (Path(self.tmp) / "memory" / "events" / "test.md").resolve())
+
+    def test_clear_data_folder(self):
+        self.writer.write_data_file("weather", "a.md", {"type": "x"}, "a")
+        self.writer.write_data_file("weather", "b.md", {"type": "x"}, "b")
+        removed = self.writer.clear_data_folder("weather")
+        self.assertEqual(removed, 2)
+        self.assertEqual(list((Path(self.tmp) / "data" / "weather").glob("*.md")), [])
+
 
 class TestVaultWriterUnicode(unittest.TestCase):
     def setUp(self):

@@ -1,0 +1,280 @@
+{
+  "version": 1,
+  "core": {
+    "path": "docs/STEWARD_CORE.md",
+    "module_ids": [
+      "framework.role_boundaries",
+      "framework.goods_posture",
+      "framework.communication",
+      "framework.refusals",
+      "spec.shared_operating_rules"
+    ],
+    "target_token_budget": 1200,
+    "hard_token_budget": 1500
+  },
+  "modules": {
+    "framework.role_boundaries": {
+      "path": "docs/framework/role-and-boundaries.md",
+      "title": "Framework / Role And Boundaries",
+      "layer": "framework"
+    },
+    "framework.goods_posture": {
+      "path": "docs/framework/goods-and-posture.md",
+      "title": "Framework / Goods And Posture",
+      "layer": "framework"
+    },
+    "framework.reasoning_observation": {
+      "path": "docs/framework/reasoning-and-observation.md",
+      "title": "Framework / Reasoning And Observation",
+      "layer": "framework"
+    },
+    "framework.communication": {
+      "path": "docs/framework/communication.md",
+      "title": "Framework / Communication",
+      "layer": "framework"
+    },
+    "framework.refusals": {
+      "path": "docs/framework/refusals.md",
+      "title": "Framework / Refusals",
+      "layer": "framework"
+    },
+    "framework.antipatterns": {
+      "path": "docs/framework/anti-patterns.md",
+      "title": "Framework / Anti-Patterns",
+      "layer": "framework"
+    },
+    "framework.worked_examples": {
+      "path": "docs/framework/worked-examples.md",
+      "title": "Framework / Worked Examples",
+      "layer": "framework"
+    },
+    "spec.shared_operating_rules": {
+      "path": "docs/spec/shared-operating-rules.md",
+      "title": "Spec / Shared Operating Rules",
+      "layer": "spec"
+    },
+    "spec.vault_model_naming": {
+      "path": "docs/spec/vault-model-and-naming.md",
+      "title": "Spec / Vault Model And Naming",
+      "layer": "spec"
+    },
+    "spec.memory_retrieval": {
+      "path": "docs/spec/memory-and-retrieval.md",
+      "title": "Spec / Memory And Retrieval",
+      "layer": "spec"
+    },
+    "spec.interaction_mode": {
+      "path": "docs/spec/interaction-mode.md",
+      "title": "Spec / Interaction Mode",
+      "layer": "spec"
+    },
+    "spec.note_handoff": {
+      "path": "docs/spec/note-handoff.md",
+      "title": "Spec / Note Handoff",
+      "layer": "spec"
+    },
+    "spec.onboarding": {
+      "path": "docs/spec/onboarding.md",
+      "title": "Spec / Onboarding",
+      "layer": "spec"
+    },
+    "spec.daily_briefing": {
+      "path": "docs/spec/daily-briefing.md",
+      "title": "Spec / Daily Briefing",
+      "layer": "spec"
+    },
+    "spec.evening_review": {
+      "path": "docs/spec/evening-review.md",
+      "title": "Spec / Evening Review",
+      "layer": "spec"
+    },
+    "spec.weekly_review": {
+      "path": "docs/spec/weekly-review.md",
+      "title": "Spec / Weekly Review",
+      "layer": "spec"
+    },
+    "spec.monthly_review": {
+      "path": "docs/spec/monthly-review.md",
+      "title": "Spec / Monthly Review",
+      "layer": "spec"
+    },
+    "spec.ambient_update": {
+      "path": "docs/spec/ambient-update.md",
+      "title": "Spec / Ambient Update",
+      "layer": "spec"
+    },
+    "spec.data_sources_scheduled_rules": {
+      "path": "docs/spec/data-sources-and-scheduled-rules.md",
+      "title": "Spec / Data Sources And Scheduled Rules",
+      "layer": "spec"
+    },
+    "spec.people_commitment_schemas": {
+      "path": "docs/spec/people-and-commitment-schemas.md",
+      "title": "Spec / People And Commitment Schemas",
+      "layer": "spec"
+    },
+    "spec.memory_schemas": {
+      "path": "docs/spec/memory-schemas.md",
+      "title": "Spec / Memory Schemas",
+      "layer": "spec"
+    },
+    "spec.policy_loader": {
+      "path": "docs/spec/policy-loader.md",
+      "title": "Spec / Policy Loader",
+      "layer": "spec"
+    }
+  },
+  "bundles": {
+    "surface": {
+      "chat": [],
+      "onboarding": [],
+      "routine": []
+    },
+    "workflow": {
+      "general_chat": [
+        "spec.interaction_mode"
+      ],
+      "note_chat": [
+        "spec.interaction_mode",
+        "spec.note_handoff"
+      ],
+      "onboarding": [
+        "spec.interaction_mode",
+        "spec.onboarding",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas",
+        "spec.memory_retrieval"
+      ],
+      "daily": [
+        "spec.daily_briefing",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ],
+      "evening": [
+        "spec.evening_review",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ],
+      "weekly": [
+        "spec.weekly_review",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ],
+      "monthly": [
+        "spec.monthly_review",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ],
+      "ambient": [
+        "spec.ambient_update",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ]
+    },
+    "write_intent": {
+      "none": [],
+      "profile": [
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas"
+      ],
+      "memory": [
+        "spec.memory_retrieval",
+        "spec.memory_schemas",
+        "spec.vault_model_naming"
+      ],
+      "routine_output": [
+        "spec.vault_model_naming"
+      ],
+      "note_writeback": [
+        "spec.note_handoff"
+      ]
+    },
+    "intent_tags": {
+      "relationship": [
+        "framework.goods_posture",
+        "framework.antipatterns"
+      ],
+      "recommendation": [
+        "framework.goods_posture",
+        "framework.reasoning_observation"
+      ],
+      "planning": [
+        "framework.antipatterns",
+        "framework.reasoning_observation"
+      ],
+      "moral_guidance": [
+        "framework.goods_posture",
+        "framework.refusals"
+      ],
+      "file_writing": [
+        "spec.vault_model_naming"
+      ]
+    },
+    "fallback_workflow": {
+      "general_chat": [
+        "spec.interaction_mode",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ],
+      "note_chat": [
+        "spec.interaction_mode",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming"
+      ],
+      "onboarding": [
+        "spec.interaction_mode",
+        "spec.onboarding",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas",
+        "spec.memory_retrieval"
+      ],
+      "daily": [
+        "spec.daily_briefing",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas"
+      ],
+      "evening": [
+        "spec.evening_review",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas"
+      ],
+      "weekly": [
+        "spec.weekly_review",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas"
+      ],
+      "monthly": [
+        "spec.monthly_review",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas"
+      ],
+      "ambient": [
+        "spec.ambient_update",
+        "spec.data_sources_scheduled_rules",
+        "spec.memory_retrieval",
+        "spec.vault_model_naming",
+        "spec.people_commitment_schemas",
+        "spec.memory_schemas"
+      ]
+    }
+  }
+}

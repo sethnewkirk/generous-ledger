@@ -43,6 +43,7 @@ from lib.vault_writer import VaultWriter
 from lib.sync_state import SyncState
 from lib.logging_config import setup_logging
 from lib.credentials import load_credential, get_config, CREDENTIALS_DIR
+from lib.contact_index import load_email_contacts
 
 # Remove script directory from sys.path to prevent calendar.py from
 # shadowing the stdlib calendar module (breaks Google auth imports).
@@ -58,7 +59,7 @@ if 'calendar' in sys.modules and 'adapters' in getattr(sys.modules['calendar'], 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 TOKEN_FILE = CREDENTIALS_DIR / "google-gmail-token.json"
 
-MAX_RESULTS = 50
+MAX_RESULTS = 200
 
 
 def get_gmail_service():
@@ -104,52 +105,8 @@ def get_gmail_service():
 # ---------------------------------------------------------------------------
 
 def load_known_contacts(vault_path: str) -> dict[str, str]:
-    """Scan profile/people/*.md for email addresses in YAML frontmatter.
-
-    Returns:
-        Dict mapping email address (lowercase) to person name.
-    """
-    import yaml
-
-    people_dir = Path(vault_path).expanduser().resolve() / "profile" / "people"
-    contacts: dict[str, str] = {}
-
-    if not people_dir.is_dir():
-        return contacts
-
-    for md_file in people_dir.glob("*.md"):
-        text = md_file.read_text(encoding="utf-8")
-        # Extract YAML frontmatter between --- delimiters
-        if not text.startswith("---"):
-            continue
-        end = text.find("---", 3)
-        if end == -1:
-            continue
-        try:
-            fm = yaml.safe_load(text[3:end])
-        except Exception:
-            continue
-        if not isinstance(fm, dict):
-            continue
-
-        name = fm.get("name", md_file.stem)
-
-        # Check for email in frontmatter (single value or list)
-        emails = fm.get("email", [])
-        if isinstance(emails, str):
-            emails = [emails]
-        for addr in emails:
-            if isinstance(addr, str) and "@" in addr:
-                contacts[addr.strip().lower()] = name
-
-        # Also scan body for email-like patterns in contact info
-        body = text[end + 3:]
-        for match in re.finditer(r"[\w.+-]+@[\w-]+\.[\w.-]+", body):
-            addr = match.group(0).lower()
-            if addr not in contacts:
-                contacts[addr] = name
-
-    return contacts
+    """Load known email contacts from profile and synced contact data."""
+    return load_email_contacts(vault_path)
 
 
 # ---------------------------------------------------------------------------
@@ -162,13 +119,24 @@ def fetch_message_ids(service, query: str, max_results: int = MAX_RESULTS) -> li
     Returns:
         List of message ID strings.
     """
-    result = (
-        service.users()
-        .messages()
-        .list(userId="me", q=query, maxResults=max_results)
-        .execute()
-    )
-    return [m["id"] for m in result.get("messages", [])]
+    message_ids: list[str] = []
+    page_token = None
+
+    while True:
+        request = service.users().messages().list(
+            userId="me",
+            q=query,
+            maxResults=min(100, max_results - len(message_ids)),
+            pageToken=page_token,
+        )
+        result = request.execute()
+        message_ids.extend(m["id"] for m in result.get("messages", []))
+        if len(message_ids) >= max_results:
+            return message_ids[:max_results]
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+    return message_ids
 
 
 def fetch_messages(service, days: int, known_contacts: dict[str, str]) -> list[dict]:
@@ -367,6 +335,10 @@ def format_message(msg: dict) -> str:
     lines.append(f"### {msg['subject']}{status}{contact_tag}")
     lines.append(f"- **From:** {msg['from_name']} <{msg['from_email']}>")
     lines.append(f"- **Date:** {msg['date_str']}")
+    if msg["thread_id"]:
+        lines.append(f"- **Thread ID:** {msg['thread_id']}")
+    if msg["id"]:
+        lines.append(f"- **Message ID:** {msg['id']}")
 
     label_display = [l for l in msg["labels"] if not l.startswith("CATEGORY_")]
     if label_display:
@@ -397,6 +369,8 @@ def format_day(date_str: str, messages: list[dict]) -> tuple[dict, str]:
         "message_count": len(messages),
         "unread_count": unread_count,
         "known_contact_messages": known_count,
+        "thread_count": len({m["thread_id"] for m in messages if m.get("thread_id")}),
+        "max_results": MAX_RESULTS,
         "source": "gmail",
         "last_synced": datetime.now().isoformat(),
         "tags": ["data", "email"],

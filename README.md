@@ -1,129 +1,116 @@
 # Generous Ledger
 
-An Obsidian plugin that brings Claude AI directly into your notes through simple `@Claude` mentions.
+Generous Ledger is an Obsidian-based personal steward system. It combines:
 
-## Features
+- an Obsidian plugin for inline note interactions
+- structured profile files in the vault
+- a canonical `memory/` layer for normalized events and durable claims
+- scheduled routines for daily, evening, weekly, and monthly stewardship
+- adapter-fed data under `data/`
+- dual runtime support for both Codex and Claude
 
-- **Inline AI Assistance**: Type `@Claude` followed by your question or prompt, press Enter, and get Claude's response directly in your note
-- **Visual Feedback**: See real-time indicators when Claude is ready (🤖), processing (⏳), or encounters an error (⚠️)
-- **Beautiful Formatting**: Responses appear in distinctive dark purple callout blocks
-- **Customizable**: Choose between Claude Sonnet 4 (faster) or Opus 4.5 (more capable), adjust response length, and customize system prompts
+The user-facing assistant identity is `Steward`. The primary inline trigger is `@Steward`, with temporary compatibility for `@Claude` and `@Codex`.
 
-## Installation
+## Current Product Shape
 
-### From Obsidian Community Plugins (Coming Soon)
+The system is organized around two canonical documents:
 
-1. Open Settings → Community Plugins
-2. Search for "Generous Ledger"
-3. Click Install, then Enable
+- [`docs/FRAMEWORK.md`](./docs/FRAMEWORK.md): moral and reasoning framework
+- [`docs/STEWARD_SPEC.md`](./docs/STEWARD_SPEC.md): operational behavior, vault structure, and protocols
 
-### Manual Installation
+Runtime wrappers remain at the vault root:
 
-1. Download the latest release from GitHub
-2. Extract the files to your vault's `.obsidian/plugins/generous-ledger/` directory
-3. Reload Obsidian
-4. Enable the plugin in Settings → Community Plugins
+- [`AGENTS.md`](./AGENTS.md) for Codex
+- [`CLAUDE.md`](./CLAUDE.md) for Claude
+
+## Plugin Features
+
+- configurable provider: `codex` or `claude`
+- configurable assistant handle, defaulting to `Steward`
+- inline paragraph triggering from Obsidian notes
+- provider-specific per-note session tracking in frontmatter
+- streaming responses for Claude
+- final-response insertion for Codex
+- onboarding terminal for initial profile creation
+
+## Scheduled Features
+
+Scripts under [`scripts/`](./scripts) run:
+
+- morning briefing flow
+- evening review flow
+- weekly review flow
+- monthly review flow
+- ambient file watching
+
+All briefing and routine entrypoints support `--provider` and `--vault`, with `GL_PROVIDER` and `GL_VAULT_PATH` as environment fallbacks.
+Before provider-driven briefings and reviews run, the scripts compile the vault's recent signals into `memory/events/` and `memory/claims/` so the assistant sees a stable, wikilinked memory graph instead of only raw source files.
+
+Current adapter coverage includes:
+
+- weather forecasts
+- Google Calendar events
+- Gmail snapshots
+- iMessage snapshots
+- Apple Contacts snapshots
+- Apple Reminders snapshots
+- imported voice-note transcripts
+- imported call-log snapshots
+- weekly finance summaries
+
+## Memory Model
+
+The vault is still the system of record, but memory now has explicit layers:
+
+- `data/` holds raw or semi-raw synced signals.
+- `data/contacts/`, `data/tasks/`, `data/voice/`, and `data/calls/` extend the signal surface for people resolution, obligations, spoken capture, and relationship activity.
+- `memory/events/` stores one normalized markdown event per promoted signal.
+- `memory/claims/` stores durable fact, obligation, preference, pattern, or idea claims.
+- `profile/` remains the steward's compiled operational surface for people, commitments, current state, and patterns.
+
+Obsidian wikilinks are first-class relationship edges throughout the memory layer. Events, claims, and profile files link to each other so retrieval can expand through the local markdown graph before it falls back to search.
 
 ## Setup
 
-1. Get an API key from [Anthropic Console](https://console.anthropic.com/)
-2. Open Obsidian Settings → Generous Ledger
-3. Paste your API key
-4. Configure your preferences (model, max tokens, system prompt)
+1. Install dependencies with `npm install`.
+2. Build the plugin with `npm run build`.
+3. Copy plugin assets into your vault's `.obsidian/plugins/generous-ledger/` directory, or run `./scripts/deploy.sh`.
+4. In Obsidian settings, choose a provider and confirm the binary path for either Codex or Claude.
+5. Use `@Steward` in a note, or run the `Begin onboarding` command if `profile/` does not exist yet.
 
-## Usage
+To create a fresh steward vault with the runtime predeployed, use:
 
-1. **Ask a Question**: In any note, type your question followed by `@Claude`:
-   ```
-   What is the capital of France? @Claude
-   ```
-
-2. **Press Enter**: Hit Enter (not Shift+Enter) to send
-
-3. **Get Response**: Claude's response appears below in a purple callout:
-   ```
-   > [!claude] Claude's Response
-   > The capital of France is Paris...
-   ```
-
-### Tips
-
-- Use `@claude` (lowercase) or `@Claude` (uppercase) - both work
-- The entire paragraph is sent to Claude
-- Shift+Enter adds a newline without triggering Claude
-- You can edit responses like any other text
-
-## Configuration
-
-### Settings
-
-- **API Key**: Your Anthropic API key (required)
-- **Model**: Choose between Sonnet 4 (fast) or Opus 4.5 (powerful)
-- **Max Tokens**: Control response length (1000-8000)
-- **System Prompt**: Customize Claude's behavior
+```bash
+./scripts/bootstrap-vault.sh --name Evander
+```
 
 ## Development
 
-### Documentation
+Primary docs:
 
-- **[Developer Guide](./docs/DEVELOPMENT.md)** - Setup, commands, and workflow
-- **[Architecture](./docs/ARCHITECTURE.md)** - System design and structure
-- **[Security](./docs/SECURITY.md)** - Security audit and fixes
+- [`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+- [`docs/DESIGN.md`](./docs/DESIGN.md)
 
-### Build Commands
+Validation commands:
 
 ```bash
-# Install dependencies
-npm install
-
-# Development mode (auto-rebuild)
-npm run dev
-
-# Production build
 npm run build
+npm test
+npm run test:python
+npm run verify
 ```
 
-### Project Structure
+Memory utilities:
 
-```
-src/
-├── core/              # Shared infrastructure (API client)
-├── features/          # Feature modules
-│   └── inline-assistant/  # @Claude mention feature
-└── main.ts            # Plugin entry point
+```bash
+./scripts/compile-memory.sh --vault /path/to/vault
+./scripts/retrieve-memory.sh --vault /path/to/vault --workflow meeting-prep --subject "Max"
+./scripts/check-memory.sh --vault /path/to/vault
 ```
 
-## Privacy & Security
+`compile-memory` now also writes `memory/health-report.md` and `memory/health-report.json` so unresolved subjects, unlinked contacts, orphaned memory, and stale/conflicting claims stay visible.
 
-- Your API key is stored locally in Obsidian's data
-- All communication is directly between your computer and Anthropic's API
-- No data is sent to third parties
-- Responses are saved as plain text in your notes
+## Historical Notes
 
-## Roadmap
-
-- [ ] Conversation threading (maintain context across multiple @Claude calls)
-- [ ] Configurable context (send more than just the paragraph)
-- [ ] Model switching per request
-- [ ] Mobile support (iOS/Android)
-- [ ] Custom response formats
-- [ ] Streaming responses
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/sethnewkirk/generous-ledger/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/sethnewkirk/generous-ledger/discussions)
-
-## License
-
-MIT
-
-## Credits
-
-Built with inspiration from:
-- [Obsidian Copilot](https://github.com/logancyang/obsidian-copilot)
-- [Obsidian Claude Code](https://github.com/Roasbeef/obsidian-claude-code)
-
----
-
-Made with ❤️ for the Obsidian community
+Older documentation about the original Anthropic API-key plugin is retained only as historical reference. Active implementation and operator guidance should follow the current steward system docs listed above.
